@@ -1,0 +1,8 @@
+# OS junk
+.DS_Store
+
+# Dependencies
+node_modules/
+
+# Builds
+dist/
