@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { Water } from 'three/examples/jsm/objects/Water.js';
 import { generateTerrain } from './sand-generation.js';
+import { Fish } from './fish.js';
 
 // Core scene/terrain settings
 const HEIGHT_SCALE = 2.5;        // vertical exaggeration of seabed
@@ -45,6 +46,7 @@ const clock = new THREE.Clock();
 const loader = new GLTFLoader();
 let fish;
 let mixer;
+let guppyFish;
 const fishVelocity = new THREE.Vector3();
 const cameraOffset = new THREE.Vector3();
 const moveState = { forward: false, back: false, left: false, right: false, up: false, down: false };
@@ -143,7 +145,8 @@ function addWaterSurface() {
     const waterGeometry = new THREE.PlaneGeometry(PLANE_SIZE, PLANE_SIZE);
     
     const textureLoader = new THREE.TextureLoader();
-    const waterNormals = textureLoader.load('textures/waternormals.jpg', function(texture) {
+    const waterNormalsUrl = new URL('./textures/waternormals.jpg', import.meta.url).href;
+    const waterNormals = textureLoader.load(waterNormalsUrl, function(texture) {
         texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
     });
     
@@ -194,11 +197,32 @@ function loadFishPlayer() {
     );
 }
 
+function loadStaticFish() {
+    const worldBounds = {
+        min: -PLANE_SIZE / 2,
+        max: PLANE_SIZE / 2,
+        minY: 5,
+        maxY: 40
+    };
+    
+    guppyFish = new Fish(scene, {
+        modelPath: '/assets/fish_animated/',
+        modelFile: 'scene.gltf',
+        scale: 0.05,
+        position: new THREE.Vector3(5, 5, -3),
+        moveSpeed: 3.0,
+        rotationSpeed: 3.0,
+        changeTargetDistance: 1.0,
+        worldBounds: worldBounds
+    });
+}
+
 initControls();
 initLights();
 buildSandDunes();
 addWaterSurface();
 loadFishPlayer();
+loadStaticFish();
 
 const cycleStart = performance.now();
 
@@ -308,6 +332,10 @@ function animate() {
 
     if (mixer) {
         mixer.update(delta);
+    }
+    
+    if (guppyFish) {
+        guppyFish.update(delta);
     }
 
     updateFish(delta);

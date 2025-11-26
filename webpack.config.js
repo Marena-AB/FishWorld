@@ -43,6 +43,16 @@ module.exports = {
         compress: true,
         port: 8085,
         hot: true,
+        static: [
+            {
+                directory: path.join(__dirname, 'src', 'textures'),
+                publicPath: '/textures',
+            },
+            {
+                directory: path.join(__dirname, 'src', 'assets'),
+                publicPath: '/assets',
+            },
+        ],
     },
     performance: {
         hints: false,

@@ -1,0 +1,11 @@
+Model Information:
+* title:	Fish Animated
+* source:	https://sketchfab.com/3d-models/fish-animated-665ab73155a44d91908519d84e5fd002
+* author:	Pia Krensel (https://sketchfab.com/Pidele)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Fish Animated" (https://sketchfab.com/3d-models/fish-animated-665ab73155a44d91908519d84e5fd002) by Pia Krensel (https://sketchfab.com/Pidele) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
