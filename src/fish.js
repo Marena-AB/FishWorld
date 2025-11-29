@@ -8,8 +8,8 @@ export class Fish {
         this.model = null;
         this.mixer = null;
         
-        this.modelPath = options.modelPath || '/assets/fish_animated/';
-        this.modelFile = options.modelFile || 'scene.gltf';
+        this.modelPath = options.modelPath;
+        this.modelFile = options.modelFile;
         
         this.scale = options.scale || 0.01;
         
@@ -22,6 +22,9 @@ export class Fish {
         this.moveSpeed = options.moveSpeed || 5.0;
         this.rotationSpeed = options.rotationSpeed || 3.0;
         this.changeTargetDistance = options.changeTargetDistance || 10.0;
+        this.maxTravelTime = options.maxTravelTime || 5.0;
+        this.minTravelTime = options.minTravelTime || 2.0;
+        this.canMove = options.canMove !== undefined ? options.canMove : true;
         this.worldBounds = options.worldBounds || {
             min: -400,
             max: 400,
@@ -31,6 +34,8 @@ export class Fish {
         
         this.previousPosition = new THREE.Vector3();
         this.targetPosition = new THREE.Vector3();
+        this.timeSinceTargetChange = 0;
+        this.currentTargetTime = 0;
         
         this.load();
     }
@@ -46,20 +51,13 @@ export class Fish {
                 
                 this.model.scale.set(this.scale, this.scale, this.scale);
                 
-                if (this.rotationOffsetX !== 0) {
-                    this.model.rotation.x += this.rotationOffsetX;
-                }
-                if (this.rotationOffsetY !== 0) {
-                    this.model.rotation.y += this.rotationOffsetY;
-                }
-                if (this.rotationOffsetZ !== 0) {
-                    this.model.rotation.z += this.rotationOffsetZ;
-                }
                 
                 this.model.position.copy(this.position);
                 this.previousPosition.copy(this.position);
                 
-                this.pickRandomTarget();
+                if (this.canMove) {
+                    this.pickRandomTarget();
+                }
                 
                 this.model.traverse((obj) => {
                     if (obj.isMesh) {
@@ -100,6 +98,9 @@ export class Fish {
         const randomY = minY + Math.random() * (maxY - minY);
         
         this.targetPosition.set(randomX, randomY, randomZ);
+        
+        this.timeSinceTargetChange = 0;
+        this.currentTargetTime = this.minTravelTime + Math.random() * (this.maxTravelTime - this.minTravelTime);
     }
     
     update(delta) {
@@ -109,13 +110,19 @@ export class Fish {
             this.mixer.update(delta);
         }
         
+        if (!this.canMove) {
+            return;
+        }
+        
+        this.timeSinceTargetChange += delta;
+        
         const currentPosition = this.model.position.clone();
         const directionToTarget = new THREE.Vector3()
             .subVectors(this.targetPosition, currentPosition);
         
         const distanceToTarget = directionToTarget.length();
         
-        if (distanceToTarget < this.changeTargetDistance) {
+        if (distanceToTarget < this.changeTargetDistance || this.timeSinceTargetChange > this.currentTargetTime) {
             this.pickRandomTarget();
             return;
         }
@@ -153,8 +160,9 @@ export class Fish {
                 
                 const tempObject = new THREE.Object3D();
                 tempObject.position.copy(newPosition);
-                tempObject.lookAt(newPosition.clone().add(movementDirection));
-                
+                const lookTarget = newPosition.clone().add(movementDirection);
+                tempObject.lookAt(lookTarget);
+
                 if (this.rotationOffsetX !== 0) {
                     tempObject.rotateX(this.rotationOffsetX);
                 }

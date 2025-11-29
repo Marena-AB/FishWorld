@@ -46,7 +46,7 @@ const clock = new THREE.Clock();
 const loader = new GLTFLoader();
 let fish;
 let mixer;
-let guppyFish;
+const aiFish = []; // Array to hold all AI fish
 const fishVelocity = new THREE.Vector3();
 const cameraOffset = new THREE.Vector3();
 const moveState = { forward: false, back: false, left: false, right: false, up: false, down: false };
@@ -197,7 +197,7 @@ function loadFishPlayer() {
     );
 }
 
-function loadStaticFish() {
+function spawnFish(config) {
     const worldBounds = {
         min: -PLANE_SIZE / 2,
         max: PLANE_SIZE / 2,
@@ -205,15 +205,100 @@ function loadStaticFish() {
         maxY: 40
     };
     
-    guppyFish = new Fish(scene, {
-        modelPath: '/assets/fish_animated/',
+    // Generate random starting position if not provided
+    // const defaultPosition = config.position || (() => {
+    //     const boundary = (worldBounds.max - worldBounds.min) * 0.3;
+    //     return new THREE.Vector3(
+    //         (Math.random() - 0.5) * 2 * boundary,
+    //         worldBounds.minY + Math.random() * (worldBounds.maxY - worldBounds.minY),
+    //         (Math.random() - 0.5) * 2 * boundary
+    //     );
+    // })();
+    
+    const fish = new Fish(scene, {
+        modelPath: config.modelPath,
+        modelFile: config.modelFile,
+        scale: config.scale || 0.05,
+        position: config.position || new THREE.Vector3(5, 5, -3),
+        moveSpeed: config.moveSpeed || 3.0,
+        rotationSpeed: config.rotationSpeed || 3.0,
+        changeTargetDistance: config.changeTargetDistance || 10.0,
+        maxTravelTime: config.maxTravelTime || 5.0,
+        minTravelTime: config.minTravelTime || 2.0,
+        canMove: config.canMove !== undefined ? config.canMove : true,
+        rotationOffsetY: config.rotationOffsetY || 0,
+        rotationOffsetX: config.rotationOffsetX || 0,
+        rotationOffsetZ: config.rotationOffsetZ || 0,
+        worldBounds: worldBounds
+    });
+    
+    aiFish.push(fish);
+    return fish;
+}
+
+const FISH_MODELS = [
+    {
+        modelPath: '/assets/fish_models/fish_animated/',
         modelFile: 'scene.gltf',
         scale: 0.05,
-        position: new THREE.Vector3(5, 5, -3),
         moveSpeed: 3.0,
-        rotationSpeed: 3.0,
-        changeTargetDistance: 1.0,
-        worldBounds: worldBounds
+        rotationSpeed: 2.0,
+        changeTargetDistance: 15.0,
+        maxTravelTime: 4.0,
+        minTravelTime: 1.5,
+        rotationOffsetY: 0
+    },
+    {
+        modelPath: '/assets/fish_models/koi_fish/',
+        modelFile: 'scene.gltf',
+        scale: 0.8,
+        moveSpeed: 3.5,
+        rotationSpeed: 2.5,
+        changeTargetDistance: 12.0,
+        maxTravelTime: 5.0,
+        minTravelTime: 2.0,
+        rotationOffsetY: Math.PI / 2 + Math.PI
+    },
+    {
+        modelPath: '/assets/fish_models/tuna_fish/',
+        modelFile: 'scene.gltf',
+        scale: 0.8,
+        moveSpeed: 3.5,
+        rotationSpeed: 2.5,
+        changeTargetDistance: 12.0,
+        maxTravelTime: 5.0,
+        minTravelTime: 2.0,
+        rotationOffsetY: 0
+    },
+
+    {
+        modelPath: '/assets/fish_models/school_of_fish/',
+        modelFile: 'scene.gltf',
+        scale: 2.5,
+        moveSpeed: 3.5,
+        rotationSpeed: 2.5,
+        changeTargetDistance: 20.0,
+        maxTravelTime: 5.0,
+        minTravelTime: 2.0,
+        rotationOffsetY: 0
+    },
+    {
+        modelPath: '/assets/fish_models/star_fish/',
+        modelFile: 'scene.gltf',
+        scale: 2.5,
+        position: new THREE.Vector3(5, 0.5, 0),
+        canMove: false  // Starfish don't move
+    }
+
+    // Add new models here - copy the structure above and adjust values
+    // If a model doesn't move correctly, try rotationOffsetY values:
+    // 0, Math.PI/2, Math.PI, Math.PI/2 + Math.PI, -Math.PI/2
+];
+
+function spawnAllFish() {
+    // Spawn all fish from the configuration registry
+    FISH_MODELS.forEach((config) => {
+        spawnFish(config);
     });
 }
 
@@ -222,7 +307,7 @@ initLights();
 buildSandDunes();
 addWaterSurface();
 loadFishPlayer();
-loadStaticFish();
+spawnAllFish();
 
 const cycleStart = performance.now();
 
@@ -334,9 +419,10 @@ function animate() {
         mixer.update(delta);
     }
     
-    if (guppyFish) {
-        guppyFish.update(delta);
-    }
+    // Update all AI fish
+    aiFish.forEach((fish) => {
+        fish.update(delta);
+    });
 
     updateFish(delta);
 
