@@ -47,6 +47,7 @@ const loader = new GLTFLoader();
 let fish;
 let mixer;
 const aiFish = []; // Array to hold all AI fish
+let controlledFish = null;
 const fishVelocity = new THREE.Vector3();
 const cameraOffset = new THREE.Vector3();
 const moveState = { forward: false, back: false, left: false, right: false, up: false, down: false };
@@ -191,10 +192,49 @@ function loadFishPlayer() {
                 mixer = new THREE.AnimationMixer(fish);
                 gltf.animations.forEach((clip) => mixer.clipAction(clip).play());
             }
+            
+            controlledFish = fish;
+            
+            initPlayerFishAI();
         },
         undefined,
         (error) => console.error('Failed to load fish model', error),
     );
+}
+
+function switchControl() {
+    const controllableFish = [fish, ...aiFish.filter(f => f.canMove)];
+    
+    if (controllableFish.length < 2) {
+        console.log('Need at least 2 fish to switch');
+        return;
+    }
+    
+    const currentIndex = controllableFish.indexOf(controlledFish);
+    const nextIndex = (currentIndex + 1) % controllableFish.length;
+    const nextFish = controllableFish[nextIndex];
+    
+    if (controlledFish && controlledFish.setControlled) {
+        controlledFish.setControlled(false);
+    }
+    if (controlledFish === fish) {
+        fishVelocity.set(0, 0, 0);
+    }
+    
+    controlledFish = nextFish;
+    if (nextFish.setControlled) {
+        nextFish.setControlled(true);
+    }
+    
+    const targetPosition = nextFish.model ? nextFish.model.position : nextFish.position;
+    cameraOffset.copy(camera.position).sub(targetPosition);
+    if (cameraOffset.lengthSq() === 0) {
+        cameraOffset.copy(INITIAL_CAMERA_OFFSET);
+    }
+    controls.target.copy(targetPosition);
+    camera.position.copy(targetPosition).add(cameraOffset);
+    
+    console.log(`Switched control to fish ${nextIndex + 1} of ${controllableFish.length}`);
 }
 
 function spawnFish(config) {
@@ -248,55 +288,49 @@ const FISH_MODELS = [
         minTravelTime: 1.5,
         rotationOffsetY: 0
     },
-    {
-        modelPath: '/assets/fish_models/koi_fish/',
-        modelFile: 'scene.gltf',
-        scale: 0.8,
-        moveSpeed: 3.5,
-        rotationSpeed: 2.5,
-        changeTargetDistance: 12.0,
-        maxTravelTime: 5.0,
-        minTravelTime: 2.0,
-        rotationOffsetY: Math.PI / 2 + Math.PI
-    },
-    {
-        modelPath: '/assets/fish_models/tuna_fish/',
-        modelFile: 'scene.gltf',
-        scale: 0.8,
-        moveSpeed: 3.5,
-        rotationSpeed: 2.5,
-        changeTargetDistance: 12.0,
-        maxTravelTime: 5.0,
-        minTravelTime: 2.0,
-        rotationOffsetY: 0
-    },
-
-    {
-        modelPath: '/assets/fish_models/school_of_fish/',
-        modelFile: 'scene.gltf',
-        scale: 2.5,
-        moveSpeed: 3.5,
-        rotationSpeed: 2.5,
-        changeTargetDistance: 20.0,
-        maxTravelTime: 5.0,
-        minTravelTime: 2.0,
-        rotationOffsetY: 0
-    },
-    {
-        modelPath: '/assets/fish_models/star_fish/',
-        modelFile: 'scene.gltf',
-        scale: 2.5,
-        position: new THREE.Vector3(5, 0.5, 0),
-        canMove: false  // Starfish don't move
-    }
-
-    // Add new models here - copy the structure above and adjust values
-    // If a model doesn't move correctly, try rotationOffsetY values:
-    // 0, Math.PI/2, Math.PI, Math.PI/2 + Math.PI, -Math.PI/2
+    // {
+    //     modelPath: '/assets/fish_models/koi_fish/',
+    //     modelFile: 'scene.gltf',
+    //     scale: 0.8,
+    //     moveSpeed: 3.5,
+    //     rotationSpeed: 2.5,
+    //     changeTargetDistance: 12.0,
+    //     maxTravelTime: 5.0,
+    //     minTravelTime: 2.0,
+    //     rotationOffsetY: Math.PI / 2 + Math.PI
+    // },
+    // {
+    //     modelPath: '/assets/fish_models/tuna_fish/',
+    //     modelFile: 'scene.gltf',
+    //     scale: 0.8,
+    //     moveSpeed: 3.5,
+    //     rotationSpeed: 2.5,
+    //     changeTargetDistance: 12.0,
+    //     maxTravelTime: 5.0,
+    //     minTravelTime: 2.0,
+    //     rotationOffsetY: 0
+    // },
+    // {
+    //     modelPath: '/assets/fish_models/school_of_fish/',
+    //     modelFile: 'scene.gltf',
+    //     scale: 2.5,
+    //     moveSpeed: 3.5,
+    //     rotationSpeed: 2.5,
+    //     changeTargetDistance: 20.0,
+    //     maxTravelTime: 5.0,
+    //     minTravelTime: 2.0,
+    //     rotationOffsetY: 0
+    // },
+    // {
+    //     modelPath: '/assets/fish_models/star_fish/',
+    //     modelFile: 'scene.gltf',
+    //     scale: 2.5,
+    //     position: new THREE.Vector3(5, 0.5, 0),
+    //     canMove: false  // Starfish don't move
+    // }
 ];
 
 function spawnAllFish() {
-    // Spawn all fish from the configuration registry
     FISH_MODELS.forEach((config) => {
         spawnFish(config);
     });
@@ -343,52 +377,176 @@ function updateDayNight(elapsedMs) {
     }
 }
 
+function updateControlledFish(delta) {
+    if (!controlledFish) return;
+    
+    if (controlledFish === fish) {
+        updateFish(delta);
+        return;
+    }
+    
+    if (controlledFish.model && controlledFish.isControlled) {
+        const tmpForward = new THREE.Vector3();
+        const tmpRight = new THREE.Vector3();
+        const upVector = new THREE.Vector3(0, 1, 0);
+        const tmpHeading = new THREE.Vector3();
+        const desiredCamPos = new THREE.Vector3();
+        const accel = new THREE.Vector3();
+        
+        accel.set(0, 0, 0);
+        camera.getWorldDirection(tmpForward);
+        tmpForward.y = 0;
+        if (tmpForward.lengthSq() === 0) { tmpForward.set(0, 0, -1); }
+        tmpForward.normalize();
+        tmpRight.crossVectors(tmpForward, upVector).normalize();
+
+        if (moveState.forward) { accel.add(tmpForward); }
+        if (moveState.back) { accel.addScaledVector(tmpForward, -1); }
+        if (moveState.left) { accel.addScaledVector(tmpRight, -1); }
+        if (moveState.right) { accel.add(tmpRight); }
+        if (moveState.up) { accel.add(upVector); }
+        if (moveState.down) { accel.addScaledVector(upVector, -1); }
+
+        if (accel.lengthSq() > 0) {
+            accel.normalize().multiplyScalar(SWIM_ACCEL);
+            controlledFish.velocity.addScaledVector(accel, delta);
+        }
+
+        if (controlledFish.velocity.lengthSq() > MAX_SWIM_SPEED * MAX_SWIM_SPEED) {
+            controlledFish.velocity.setLength(MAX_SWIM_SPEED);
+        }
+        controlledFish.velocity.multiplyScalar(Math.pow(SWIM_DRAG, delta * 60));
+        controlledFish.model.position.addScaledVector(controlledFish.velocity, delta);
+
+        tmpHeading.copy(controlledFish.velocity);
+        tmpHeading.y = 0;
+        if (tmpHeading.lengthSq() > 1e-4) {
+            let baseRotation = Math.atan2(tmpHeading.x, tmpHeading.z);
+            baseRotation += controlledFish.rotationOffsetY || 0;
+            controlledFish.model.rotation.y = baseRotation;
+        }
+
+        if (cameraOffset.lengthSq() === 0) {
+            cameraOffset.copy(camera.position).sub(controlledFish.model.position);
+        }
+        desiredCamPos.copy(cameraOffset).add(controlledFish.model.position);
+        camera.position.lerp(desiredCamPos, CAMERA_FOLLOW_LERP);
+        controls.target.copy(controlledFish.model.position);
+    }
+}
+
+let playerFishAI = null;
+function initPlayerFishAI() {
+    if (!fish) return;
+
+    playerFishAI = {
+        targetPosition: new THREE.Vector3(),
+        timeSinceTargetChange: 0,
+        currentTargetTime: 0,
+        pickRandomTarget: function() {
+            const boundary = PLANE_SIZE * 0.2;
+            const minY = 5;
+            const maxY = 40;
+            
+            this.targetPosition.set(
+                (Math.random() - 0.5) * 2 * boundary,
+                minY + Math.random() * (maxY - minY),
+                (Math.random() - 0.5) * 2 * boundary
+            );
+            
+            this.timeSinceTargetChange = 0;
+            this.currentTargetTime = 2.0 + Math.random() * 3.0;
+        },
+        update: function(delta) {
+            if (!fish) return;
+            
+            this.timeSinceTargetChange += delta;
+            
+            const directionToTarget = new THREE.Vector3()
+                .subVectors(this.targetPosition, fish.position);
+            const distanceToTarget = directionToTarget.length();
+            
+            if (distanceToTarget < 10.0 || this.timeSinceTargetChange > this.currentTargetTime) {
+                this.pickRandomTarget();
+                return;
+            }
+            
+            if (distanceToTarget > 0.001) {
+                directionToTarget.normalize();
+                const moveSpeed = 3.0;
+                const moveDistance = moveSpeed * delta;
+                fish.position.addScaledVector(directionToTarget, moveDistance);
+                
+                const heading = directionToTarget.clone();
+                heading.y = 0;
+                if (heading.lengthSq() > 1e-4) {
+                    fish.rotation.y = Math.atan2(heading.x, heading.z);
+                }
+            }
+        }
+    };
+    
+    if (playerFishAI) {
+        playerFishAI.pickRandomTarget();
+    }
+}
+
 function updateFish(delta) {
-    if (!fish) { return; }
+    if (!fish) return;
+    
+    if (controlledFish === fish) {
+        accel.set(0, 0, 0);
+        camera.getWorldDirection(tmpForward);
+        tmpForward.y = 0;
+        if (tmpForward.lengthSq() === 0) { tmpForward.set(0, 0, -1); }
+        tmpForward.normalize();
+        tmpRight.crossVectors(tmpForward, upVector).normalize();
 
-    accel.set(0, 0, 0);
-    camera.getWorldDirection(tmpForward);
-    tmpForward.y = 0;
-    if (tmpForward.lengthSq() === 0) { tmpForward.set(0, 0, -1); }
-    tmpForward.normalize();
-    tmpRight.crossVectors(tmpForward, upVector).normalize();
+        if (moveState.forward) { accel.add(tmpForward); }
+        if (moveState.back) { accel.addScaledVector(tmpForward, -1); }
+        if (moveState.left) { accel.addScaledVector(tmpRight, -1); }
+        if (moveState.right) { accel.add(tmpRight); }
+        if (moveState.up) { accel.add(upVector); }
+        if (moveState.down) { accel.addScaledVector(upVector, -1); }
 
-    if (moveState.forward) { accel.add(tmpForward); }
-    if (moveState.back) { accel.addScaledVector(tmpForward, -1); }
-    if (moveState.left) { accel.addScaledVector(tmpRight, -1); }
-    if (moveState.right) { accel.add(tmpRight); }
-    if (moveState.up) { accel.add(upVector); }
-    if (moveState.down) { accel.addScaledVector(upVector, -1); }
+        if (accel.lengthSq() > 0) {
+            accel.normalize().multiplyScalar(SWIM_ACCEL);
+            fishVelocity.addScaledVector(accel, delta);
+        }
 
-    if (accel.lengthSq() > 0) {
-        accel.normalize().multiplyScalar(SWIM_ACCEL);
-        fishVelocity.addScaledVector(accel, delta);
+        if (fishVelocity.lengthSq() > MAX_SWIM_SPEED * MAX_SWIM_SPEED) {
+            fishVelocity.setLength(MAX_SWIM_SPEED);
+        }
+        fishVelocity.multiplyScalar(Math.pow(SWIM_DRAG, delta * 60));
+        fish.position.addScaledVector(fishVelocity, delta);
+
+        tmpHeading.copy(fishVelocity);
+        tmpHeading.y = 0;
+        if (tmpHeading.lengthSq() > 1e-4) {
+            fish.rotation.y = Math.atan2(tmpHeading.x, tmpHeading.z);
+        }
+
+        if (cameraOffset.lengthSq() === 0) {
+            cameraOffset.copy(camera.position).sub(fish.position);
+        }
+        desiredCamPos.copy(cameraOffset).add(fish.position);
+        camera.position.lerp(desiredCamPos, CAMERA_FOLLOW_LERP);
+        controls.target.copy(fish.position);
+    } else {
+        // If player fish is not controlled, use AI behavior
+        if (playerFishAI) {
+            playerFishAI.update(delta);
+        }
     }
-
-    // Speed limit and drag
-    if (fishVelocity.lengthSq() > MAX_SWIM_SPEED * MAX_SWIM_SPEED) {
-        fishVelocity.setLength(MAX_SWIM_SPEED);
-    }
-    fishVelocity.multiplyScalar(Math.pow(SWIM_DRAG, delta * 60));
-    fish.position.addScaledVector(fishVelocity, delta);
-
-    // Orient fish to direction of travel 
-    tmpHeading.copy(fishVelocity);
-    tmpHeading.y = 0;
-    if (tmpHeading.lengthSq() > 1e-4) {
-        fish.rotation.y = Math.atan2(tmpHeading.x, tmpHeading.z);
-    }
-
-    // Camera follow
-    if (cameraOffset.lengthSq() === 0) {
-        cameraOffset.copy(camera.position).sub(fish.position);
-    }
-    desiredCamPos.copy(cameraOffset).add(fish.position);
-    camera.position.lerp(desiredCamPos, CAMERA_FOLLOW_LERP);
-    controls.target.copy(fish.position);
 }
 
 function handleKey(event, isDown) {
+    if (isDown && event.code === 'Tab') {
+        event.preventDefault();
+        switchControl();
+        return;
+    }
+    
     switch (event.code) {
     case 'KeyW': moveState.forward = isDown; break;
     case 'KeyS': moveState.back = isDown; break;
@@ -419,12 +577,19 @@ function animate() {
         mixer.update(delta);
     }
     
-    // Update all AI fish
-    aiFish.forEach((fish) => {
-        fish.update(delta);
-    });
+    if (controlledFish && controlledFish !== fish && controlledFish.mixer) {
+        controlledFish.mixer.update(delta);
+    }
+    
+    updateControlledFish(delta);
 
     updateFish(delta);
+    
+    aiFish.forEach((aiFish) => {
+        if (!aiFish.isControlled) {
+            aiFish.update(delta);
+        }
+    });
 
     if (controls) {
         controls.update();

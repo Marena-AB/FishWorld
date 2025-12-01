@@ -37,7 +37,17 @@ export class Fish {
         this.timeSinceTargetChange = 0;
         this.currentTargetTime = 0;
         
+        this.isControlled = false;
+        this.velocity = new THREE.Vector3();
+        
         this.load();
+    }
+    
+    setControlled(controlled) {
+        this.isControlled = controlled;
+        if (controlled) {
+            this.velocity.set(0, 0, 0);
+        }
     }
     
     load() {
@@ -108,6 +118,10 @@ export class Fish {
         
         if (this.mixer) {
             this.mixer.update(delta);
+        }
+        
+        if (this.isControlled) {
+            return;
         }
         
         if (!this.canMove) {
