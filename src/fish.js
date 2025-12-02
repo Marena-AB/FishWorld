@@ -7,6 +7,7 @@ export class Fish {
         
         this.model = null;
         this.mixer = null;
+        this.materials = [];
         
         this.modelPath = options.modelPath || '/assets/fish_animated/';
         this.modelFile = options.modelFile || 'scene.gltf';
@@ -29,8 +30,27 @@ export class Fish {
             maxY: 45
         };
         
+        this.baseColor = options.color ? new THREE.Color(options.color) : null;
+        this.emissiveColor = options.emissiveColor ? new THREE.Color(options.emissiveColor) : null;
+        this.emissiveIntensity = options.emissiveIntensity || 0;
+        this.emissivePulseSpeed = options.emissivePulseSpeed || 2.2;
+        this.glowMultiplier = 1;
+        this.materialModifier = options.materialModifier;
+        this.radius = options.radius || 2.0;
+        
+        // Physics properties
+        this.physicsWorld = options.physicsWorld || null;
+        this.rigidBody = null;
+        this.collider = null;
+        this.waterSurfaceY = options.waterSurfaceY || 50;
+        this.canJump = options.canJump !== undefined ? options.canJump : false;
+        this.jumpCooldown = 0;
+        this.isJumping = false;
+        this.velocity = new THREE.Vector3();
+        
         this.previousPosition = new THREE.Vector3();
         this.targetPosition = new THREE.Vector3();
+        this.time = 0;
         
         this.load();
     }
@@ -65,6 +85,20 @@ export class Fish {
                     if (obj.isMesh) {
                         obj.castShadow = true;
                         obj.receiveShadow = true;
+
+                        obj.material = obj.material.clone();
+                        const mat = obj.material;
+                        if (this.baseColor) {
+                            mat.color.copy(this.baseColor);
+                        }
+                        if (this.emissiveColor) {
+                            mat.emissive = this.emissiveColor.clone();
+                            mat.emissiveIntensity = this.emissiveIntensity;
+                        }
+                        if (this.materialModifier) {
+                            this.materialModifier(mat);
+                        }
+                        this.materials.push(mat);
                     }
                 });
                 
@@ -104,9 +138,15 @@ export class Fish {
     
     update(delta) {
         if (!this.model) return;
+        this.time += delta;
         
         if (this.mixer) {
             this.mixer.update(delta);
+        }
+        
+        // Update jump cooldown
+        if (this.jumpCooldown > 0) {
+            this.jumpCooldown -= delta;
         }
         
         const currentPosition = this.model.position.clone();
@@ -127,6 +167,35 @@ export class Fish {
             const newPosition = currentPosition.clone()
                 .add(directionToTarget.multiplyScalar(moveDistance));
             
+            // Water surface handling - prevent going above water unless jumping
+            if (newPosition.y > this.waterSurfaceY - 2) {
+                if (this.canJump && !this.isJumping && this.jumpCooldown <= 0 && Math.random() < 0.02) {
+                    // Initiate jump
+                    this.isJumping = true;
+                    this.velocity.y = 8 + Math.random() * 4; // Jump velocity
+                    this.jumpCooldown = 3 + Math.random() * 2; // Cooldown before next jump
+                } else if (!this.isJumping) {
+                    // Keep fish below water surface
+                    newPosition.y = Math.min(newPosition.y, this.waterSurfaceY - 2);
+                    if (currentPosition.y > this.waterSurfaceY - 2) {
+                        this.pickRandomTarget();
+                    }
+                }
+            }
+            
+            // Handle jumping physics
+            if (this.isJumping) {
+                this.velocity.y -= 9.8 * delta; // Gravity
+                newPosition.y += this.velocity.y * delta;
+                
+                // Check if fish has landed back in water
+                if (newPosition.y <= this.waterSurfaceY - 2) {
+                    newPosition.y = this.waterSurfaceY - 2;
+                    this.isJumping = false;
+                    this.velocity.y = 0;
+                }
+            }
+            
             const boundary = (this.worldBounds.max - this.worldBounds.min) * 0.45;
             if (Math.abs(newPosition.x) > boundary) {
                 newPosition.x = Math.sign(newPosition.x) * boundary;
@@ -140,7 +209,7 @@ export class Fish {
                 newPosition.y = this.worldBounds.minY + 2;
                 this.pickRandomTarget();
             }
-            if (newPosition.y > this.worldBounds.maxY - 2) {
+            if (newPosition.y > this.worldBounds.maxY - 2 && !this.isJumping) {
                 newPosition.y = this.worldBounds.maxY - 2;
                 this.pickRandomTarget();
             }
@@ -154,6 +223,12 @@ export class Fish {
                 const tempObject = new THREE.Object3D();
                 tempObject.position.copy(newPosition);
                 tempObject.lookAt(newPosition.clone().add(movementDirection));
+                
+                // Add tilt when jumping
+                if (this.isJumping) {
+                    const tiltAngle = Math.atan2(this.velocity.y, this.moveSpeed) * 0.5;
+                    tempObject.rotateX(tiltAngle);
+                }
                 
                 if (this.rotationOffsetX !== 0) {
                     tempObject.rotateX(this.rotationOffsetX);
@@ -173,7 +248,28 @@ export class Fish {
             
             this.model.position.copy(newPosition);
             this.previousPosition.copy(newPosition);
+            
+            // Update physics body if it exists
+            if (this.rigidBody && this.physicsWorld) {
+                const translation = this.rigidBody.translation();
+                translation.x = newPosition.x;
+                translation.y = newPosition.y;
+                translation.z = newPosition.z;
+                this.rigidBody.setTranslation(translation, true);
+            }
+        }
+
+        if (this.emissiveColor && this.materials.length > 0) {
+            const pulse = 1 + 0.35 * Math.sin(this.time * this.emissivePulseSpeed);
+            const intensity = this.emissiveIntensity * pulse * this.glowMultiplier;
+            this.materials.forEach((mat) => {
+                mat.emissive.copy(this.emissiveColor);
+                mat.emissiveIntensity = intensity;
+            });
         }
     }
-}
 
+    setGlowMultiplier(multiplier) {
+        this.glowMultiplier = multiplier;
+    }
+}
