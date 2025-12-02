@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { KHRMaterialsPBRSpecularGlossiness } from './pbrSpecGlossExtension.js';
 
 export class Fish {
     constructor(scene, options = {}) {
@@ -19,6 +20,14 @@ export class Fish {
         this.rotationOffsetZ = options.rotationOffsetZ || 0;
         
         this.position = options.position || new THREE.Vector3(0, 5, 0);
+        
+        // Physics properties (must be set before clamping position)
+        this.waterSurfaceY = options.waterSurfaceY || 50;
+        
+        // Clamp initial position to be below water surface
+        if (this.position.y > this.waterSurfaceY - 2) {
+            this.position.y = this.waterSurfaceY - 2;
+        }
         
         this.moveSpeed = options.moveSpeed || 5.0;
         this.rotationSpeed = options.rotationSpeed || 3.0;
@@ -41,11 +50,10 @@ export class Fish {
         this.materialModifier = options.materialModifier;
         this.radius = options.radius || 2.0;
         
-        // Physics properties
+        // Physics properties (waterSurfaceY already set above)
         this.physicsWorld = options.physicsWorld || null;
         this.rigidBody = null;
         this.collider = null;
-        this.waterSurfaceY = options.waterSurfaceY || 50;
         this.canJump = options.canJump !== undefined ? options.canJump : false;
         this.jumpCooldown = 0;
         this.isJumping = false;
@@ -58,7 +66,6 @@ export class Fish {
         this.currentTargetTime = 0;
         
         this.isControlled = false;
-        this.velocity = new THREE.Vector3();
         
         this.load();
     }
@@ -72,18 +79,24 @@ export class Fish {
     
     load() {
         const loader = new GLTFLoader();
-        loader.setPath(this.modelPath);
+        loader.register((parser) => new KHRMaterialsPBRSpecularGlossiness(parser));
+        
+        // Check if modelPath is a full URL (from webpack import) or a directory path
+        const fullPath = this.modelFile ? this.modelPath + this.modelFile : this.modelPath;
         
         loader.load(
-            this.modelFile,
+            fullPath,
             (gltf) => {
                 this.model = gltf.scene;
                 
                 this.model.scale.set(this.scale, this.scale, this.scale);
                 
-                
                 this.model.position.copy(this.position);
-                this.previousPosition.copy(this.position);
+                // Ensure initial position is below water surface
+                if (this.model.position.y > this.waterSurfaceY - 2) {
+                    this.model.position.y = this.waterSurfaceY - 2;
+                }
+                this.previousPosition.copy(this.model.position);
                 
                 if (this.canMove) {
                     this.pickRandomTarget();
@@ -135,7 +148,8 @@ export class Fish {
     pickRandomTarget() {
         const boundary = (this.worldBounds.max - this.worldBounds.min) * 0.4;
         const minY = this.worldBounds.minY + 5;
-        const maxY = this.worldBounds.maxY - 5;
+        // Ensure target is always safely below water surface
+        const maxY = Math.min(this.worldBounds.maxY - 5, this.waterSurfaceY - 5);
         
         const randomX = (Math.random() - 0.5) * 2 * boundary;
         const randomZ = (Math.random() - 0.5) * 2 * boundary;
@@ -189,6 +203,14 @@ export class Fish {
             const newPosition = currentPosition.clone()
                 .add(directionToTarget.multiplyScalar(moveDistance));
             
+            // STRICT: If fish is above water and not jumping, force it down immediately
+            if (currentPosition.y > this.waterSurfaceY - 2 && !this.isJumping) {
+                newPosition.y = this.waterSurfaceY - 2;
+                this.isJumping = false;
+                this.velocity.y = 0;
+                this.pickRandomTarget(); // Get a new underwater target
+            }
+            
             // Water surface handling - prevent going above water unless jumping
             if (newPosition.y > this.waterSurfaceY - 2) {
                 if (this.canJump && !this.isJumping && this.jumpCooldown <= 0 && Math.random() < 0.02) {
@@ -199,9 +221,7 @@ export class Fish {
                 } else if (!this.isJumping) {
                     // Keep fish below water surface
                     newPosition.y = Math.min(newPosition.y, this.waterSurfaceY - 2);
-                    if (currentPosition.y > this.waterSurfaceY - 2) {
-                        this.pickRandomTarget();
-                    }
+                    this.pickRandomTarget(); // Get new underwater target
                 }
             }
             
@@ -215,6 +235,7 @@ export class Fish {
                     newPosition.y = this.waterSurfaceY - 2;
                     this.isJumping = false;
                     this.velocity.y = 0;
+                    this.pickRandomTarget(); // Get new underwater target after landing
                 }
             }
             
@@ -244,7 +265,6 @@ export class Fish {
                 
                 const tempObject = new THREE.Object3D();
                 tempObject.position.copy(newPosition);
-
                 tempObject.lookAt(newPosition.clone().add(movementDirection));
                 
                 // Add tilt when jumping
@@ -253,10 +273,7 @@ export class Fish {
                     tempObject.rotateX(tiltAngle);
                 }
                 
-
-                const lookTarget = newPosition.clone().add(movementDirection);
-                tempObject.lookAt(lookTarget);
-
+                // Apply rotation offsets for different fish models
                 if (this.rotationOffsetX !== 0) {
                     tempObject.rotateX(this.rotationOffsetX);
                 }
