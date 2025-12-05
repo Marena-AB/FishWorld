@@ -103,6 +103,37 @@ const accel = new THREE.Vector3();
 const tmpCollide = new THREE.Vector3();
 const tmpCollide2 = new THREE.Vector3();
 
+// Utility to space out spawned fish so they don't all cluster
+function getSpawnPosition(worldBounds, minSpacing, existingPositions, yRange) {
+    const maxAttempts = 30;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const pos = new THREE.Vector3(
+            (Math.random() - 0.5) * (worldBounds.max - worldBounds.min),
+            yRange.min + Math.random() * (yRange.max - yRange.min),
+            (Math.random() - 0.5) * (worldBounds.max - worldBounds.min),
+        );
+        let tooClose = false;
+        for (const other of existingPositions) {
+            if (pos.distanceToSquared(other) < minSpacing * minSpacing) {
+                tooClose = true;
+                break;
+            }
+        }
+        if (!tooClose) {
+            existingPositions.push(pos);
+            return pos;
+        }
+    }
+    // Fallback if we couldn't find a spaced position
+    const pos = new THREE.Vector3(
+        (Math.random() - 0.5) * (worldBounds.max - worldBounds.min),
+        yRange.min + Math.random() * (yRange.max - yRange.min),
+        (Math.random() - 0.5) * (worldBounds.max - worldBounds.min),
+    );
+    existingPositions.push(pos);
+    return pos;
+}
+
 // Asset URLs (must stay static for bundlers)
 const SEAWEED_URL = new URL('./assets/sea_weed.glb', import.meta.url).href;
 const TURTLE_URL = new URL('./assets/model_46a_-_subadult_green_sea_turtle.glb', import.meta.url).href;
@@ -657,20 +688,19 @@ function loadStaticFish() {
     ];
     
     let colorIndex = 0;
+    const placed = [];
     // Spawn multiple of each type
     fishTypes.forEach((fishType) => {
         for (let i = 0; i < fishType.count; i++) {
+            const yRange = { min: 6, max: WATER_SURFACE_Y - 15 };
+            const pos = getSpawnPosition(worldBounds, 25, placed, yRange);
             const fishy = new Fish(scene, {
                 modelPath: fishType.path,
                 modelFile: fishType.file,
                 scale: fishType.scale + Math.random() * fishType.scale * 0.15,
                 color: palette[colorIndex % palette.length],
                 rotationOffsetY: fishType.rotationOffsetY + (Math.random() - 0.5) * 0.3,
-                position: new THREE.Vector3(
-                    (Math.random() - 0.5) * PLANE_SIZE * 0.55,
-                    6 + Math.random() * (WATER_SURFACE_Y - 15), // Keep below water surface
-                    (Math.random() - 0.5) * PLANE_SIZE * 0.55
-                ),
+                position: pos,
                 moveSpeed: 1.2 + Math.random() * 1.2,
                 rotationSpeed: 2.0 + Math.random() * 1.0,
                 changeTargetDistance: 1.6 + Math.random() * 0.6,
@@ -731,9 +761,12 @@ function loadGlowingFish() {
     ];
     
     let colorIndex = 0;
+    const placed = [];
     // Spawn multiple of each type with varied characteristics
     fishTypes.forEach((fishType) => {
         for (let i = 0; i < fishType.count; i++) {
+            const yRange = { min: 8, max: WATER_SURFACE_Y - 15 };
+            const pos = getSpawnPosition(worldBounds, 28, placed, yRange);
             const glowFish = new Fish(scene, {
                 modelPath: fishType.path,
                 modelFile: fishType.file,
@@ -743,11 +776,7 @@ function loadGlowingFish() {
                 emissiveIntensity: fishType.intensity + Math.random() * 0.6,
                 emissivePulseSpeed: fishType.pulseSpeed + Math.random() * 1.0,
                 rotationOffsetY: fishType.rotationOffsetY + (Math.random() - 0.5) * 0.4,
-                position: new THREE.Vector3(
-                    (Math.random() - 0.5) * PLANE_SIZE * 0.5,
-                    8 + Math.random() * (WATER_SURFACE_Y - 15),
-                    (Math.random() - 0.5) * PLANE_SIZE * 0.5
-                ),
+                position: pos,
                 moveSpeed: 1.2 + Math.random() * 1.4,
                 rotationSpeed: 2.4 + Math.random() * 1.1,
                 changeTargetDistance: 1.5 + Math.random() * 0.8,
@@ -787,9 +816,9 @@ function loadLargeCreatures() {
             25 + Math.random() * 10,
             (Math.random() - 0.5) * PLANE_SIZE * 0.4
         ),
-        moveSpeed: 4.0,
-        rotationSpeed: 1.5,
-        changeTargetDistance: 20,
+        moveSpeed: 10.0,              // give whales noticeable translation
+        rotationSpeed: 1.2,
+        changeTargetDistance: 6,
         worldBounds: worldBounds,
         waterSurfaceY: WATER_SURFACE_Y,
         canJump: true,
@@ -803,18 +832,18 @@ function loadLargeCreatures() {
     
     // Orca - faster, more agile
     const orca = new Fish(scene, {
-        modelPath: './assets/fish_models/',
-        modelFile: 'female_orca.glb',
-        scale: 0.8,
+        modelPath: femaleOrcaUrl,
+        modelFile: '',
+        scale: 0.9,
         color: 0x1a1a1a,
         position: new THREE.Vector3(
             (Math.random() - 0.5) * PLANE_SIZE * 0.5,
             20 + Math.random() * 8,
             (Math.random() - 0.5) * PLANE_SIZE * 0.5
         ),
-        moveSpeed: 6.0,
-        rotationSpeed: 2.0,
-        changeTargetDistance: 15,
+        moveSpeed: 12.0,
+        rotationSpeed: 1.6,
+        changeTargetDistance: 6,
         worldBounds: worldBounds,
         waterSurfaceY: WATER_SURFACE_Y,
         canJump: true,
