@@ -417,7 +417,7 @@ function addWaterSurface() {
     });
     
     water.rotation.x = -Math.PI / 2;
-    water.position.y = 25; 
+    water.position.y = WATER_SURFACE_Y; // align visual surface with gameplay surface
     
     scene.add(water);
 }
