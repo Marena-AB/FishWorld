@@ -4,6 +4,7 @@ const HtmlWebpackPlugin = require('html-webpack-plugin');
 
 module.exports = {
     entry: {
+        menu: './src/menu.js',
         water: './src/water.js',
     },
     output: {
@@ -36,7 +37,7 @@ module.exports = {
         new HtmlWebpackPlugin({
             template: './src/index.html',
             filename: 'index.html',
-            chunks: ['water'],
+            chunks: ['menu'],
         }),
     ],
     devServer: {
