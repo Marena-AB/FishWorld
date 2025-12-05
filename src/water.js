@@ -7,32 +7,39 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { generateTerrain } from './sand-generation.js';
 import { Fish } from './fish.js';
-import { KHRMaterialsPBRSpecularGlossiness } from './pbrSpecGlossExtension.js';
+
+// Import fish models (webpack will bundle these)
+import alienFishUrl from './assets/alien_fish_animated.glb';
+import arcticPeeperUrl from './assets/arctic_peeper.glb';
+import blueWhaleUrl from './assets/blue_whale.glb';
+import discusFishUrl from './assets/discus_fish.glb';
+import femaleOrcaUrl from './assets/female_orca.glb';
+import spermWhaleUrl from './assets/sperm_whale.glb';
+import stylizedFishUrl from './assets/stylized_fish.glb';
 
 // Core scene/terrain settings
 const HEIGHT_SCALE = 2.5;        // vertical exaggeration of seabed
-const DETAIL = 10;               // (2^detail + 1) resolution
+const DETAIL = 8;                // (2^detail + 1) resolution - further reduced for performance
 const TILE_SEGMENTS = 2 ** DETAIL; // equals size - 1 for geometry segments
 const PLANE_SIZE = 800;          // world-space span of the seabed
 const SWIM_ACCEL = 45;           // swim acceleration strength
 const SWIM_DRAG = 0.9;           // damping factor per frame
 const MAX_SWIM_SPEED = 50;       // cap on swim speed
 const CAMERA_FOLLOW_RESPONSE = 8; // smoothing speed for camera follow (per second)
-const CAMERA_DISTANCE = 15;       // chase distance behind the fish
-const CAMERA_HEIGHT = 6;          // chase height above the fish
+const CAMERA_DISTANCE = 12;       // chase distance behind the fish (reduced from 15)
+const CAMERA_HEIGHT = 5;          // chase height above the fish (reduced from 6)
 const INITIAL_CAMERA_OFFSET = new THREE.Vector3(0, CAMERA_HEIGHT, -CAMERA_DISTANCE);
-const BLOOM_STRENGTH = 1.15;
-const BLOOM_RADIUS = 0.4;
-const BLOOM_THRESHOLD = 0.1;
+const BLOOM_STRENGTH = 0.65;
+const BLOOM_RADIUS = 0.25;
+const BLOOM_THRESHOLD = 0.32;
 const SAND_COLOR = 0xd6c196;
-const ROCK_COUNT = 30;
-const KELP_COUNT = 18;
+const ROCK_COUNT = 15;  // Reduced from 30
+const KELP_COUNT = 9;   // Reduced from 18
 const PLAYER_BOUNDS = PLANE_SIZE * 0.48; // keep player over terrain
 const PLAYER_MIN_Y = 3;
 const PLAYER_MAX_Y = 45;
 const PLAYER_RADIUS = 2.2;
 const WATER_SURFACE_Y = 50;      // Y position of water surface
-const FISH_SIZE_MULT = 4.5;      // Global scale boost for fish models
 
 // Day/night cycle settings
 const cycleDurationMs = 60000; 
@@ -40,13 +47,13 @@ const daySkyColor = new THREE.Color(0x8cc8ff);
 const nightSkyColor = new THREE.Color(0x0a1938);
 const dayWaterColor = new THREE.Color(0x006994); 
 const nightWaterColor = new THREE.Color(0x000510);
-const dayUnderwaterFog = new THREE.Color(0x1a5f7a); 
-const nightUnderwaterFog = new THREE.Color(0x0a1938);
+const dayUnderwaterFog = new THREE.Color(0x1a6580); // Darker, more realistic (was 0x2a7fa0)
+const nightUnderwaterFog = new THREE.Color(0x0d1f3a); // Darker night (was 0x152850)
 
 // Scene
 const scene = new THREE.Scene();
 scene.background = dayUnderwaterFog.clone(); 
-scene.fog = new THREE.Fog(dayUnderwaterFog.clone(), 30, 200); 
+scene.fog = new THREE.Fog(dayUnderwaterFog.clone(), 80, 350); // Push fog much further back for better visibility 
 
 // Camera
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1200);
@@ -55,18 +62,17 @@ camera.position.set(0, 10, 50);
 // Renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.shadowMap.enabled = true;
-renderer.useLegacyLights = false;
+renderer.physicallyCorrectLights = true;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
 renderer.setClearColor(dayUnderwaterFog);
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 const clock = new THREE.Clock();
 const loader = new GLTFLoader();
-loader.register((parser) => new KHRMaterialsPBRSpecularGlossiness(parser));
 let fish;
 let mixer;
 let guppyFish = [];
@@ -91,6 +97,7 @@ const tmpForward = new THREE.Vector3();
 const tmpRight = new THREE.Vector3();
 const upVector = new THREE.Vector3(0, 1, 0);
 const tmpHeading = new THREE.Vector3();
+const playerHeading = new THREE.Vector3(0, 0, -1); // cache last heading to keep camera behind when stopped
 const desiredCamPos = new THREE.Vector3();
 const accel = new THREE.Vector3();
 const tmpCollide = new THREE.Vector3();
@@ -106,11 +113,6 @@ const STYLIZED_FISH_URL = new URL('./assets/stylized_fish.glb', import.meta.url)
 const DISCUS_FISH_URL = new URL('./assets/discus_fish.glb', import.meta.url).href;
 const PEEPER_URL = new URL('./assets/arctic_peeper.glb', import.meta.url).href;
 const ALIEN_FISH_URL = new URL('./assets/alien_fish_animated.glb', import.meta.url).href;
-// Legacy aliases for prior variable names to avoid runtime undefined errors
-const alienFishUrl = ALIEN_FISH_URL;
-const arcticPeeperUrl = PEEPER_URL;
-const discusFishUrl = DISCUS_FISH_URL;
-const stylizedFishUrl = STYLIZED_FISH_URL;
 
 // Controls
 let controls;
@@ -132,14 +134,15 @@ let ambient;
 let sun;
 let causticsLight;
 let causticsTexture;
+let cameraLight; // Add camera-mounted light for local visibility
 function initLights() {
-    ambient = new THREE.AmbientLight(0x4a9fb5, 0.5);
+    ambient = new THREE.AmbientLight(0x4a9fb5, 0.5); // Reduced from 0.8 to 0.5 for realism
     scene.add(ambient);
 
-    sun = new THREE.DirectionalLight(0x88c5d8, 0.8);
+    sun = new THREE.DirectionalLight(0x88c5d8, 0.7); // Reduced from 1.2 to 0.7
     sun.position.set(60, 110, 40);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(1024, 1024);
     sun.shadow.camera.far = 1200;
     sun.shadow.camera.left = -500;
     sun.shadow.camera.right = 500;
@@ -147,6 +150,11 @@ function initLights() {
     sun.shadow.camera.bottom = -500;
     scene.add(sun);
     scene.add(sun.target);
+    
+    // Add camera-mounted point light for local illumination
+    cameraLight = new THREE.PointLight(0xb8e6ff, 0.4, 40, 2); // Reduced intensity from 0.6 to 0.4, range from 50 to 40
+    cameraLight.position.copy(camera.position);
+    scene.add(cameraLight);
 }
 
 function buildSandDunes() {
@@ -293,7 +301,7 @@ function addAmbientModels() {
     addSceneModel({
         href: SEAWEED_URL,
         scale: 4.5,
-        count: 16,
+        count: 8,  // Reduced from 16
         area: 0.55,
         minY: 5,
         maxY: 12,
@@ -303,8 +311,8 @@ function addAmbientModels() {
     // Stylized mid-water fish
     addSceneModel({
         href: STYLIZED_FISH_URL,
-        scale: 0.12,
-        count: 12,
+        scale: 0.35,  // Increased from 0.12 (3x bigger)
+        count: 6,  // Reduced from 12
         area: 0.45,
         minY: 10,
         maxY: 20
@@ -313,8 +321,8 @@ function addAmbientModels() {
     // Discus fish school
     addSceneModel({
         href: DISCUS_FISH_URL,
-        scale: 0.1,
-        count: 14,
+        scale: 0.3,  // Increased from 0.1 (3x bigger)
+        count: 6,  // Reduced from 14
         area: 0.4,
         minY: 9,
         maxY: 18
@@ -323,8 +331,8 @@ function addAmbientModels() {
     // Arctic peepers near surface
     addSceneModel({
         href: PEEPER_URL,
-        scale: 0.12,
-        count: 14,
+        scale: 0.35,  // Increased from 0.12 (3x bigger)
+        count: 6,  // Reduced from 14
         area: 0.45,
         minY: 16,
         maxY: 24
@@ -333,8 +341,8 @@ function addAmbientModels() {
     // Alien fish with animations for night vibe
     addSceneModel({
         href: ALIEN_FISH_URL,
-        scale: 0.065,
-        count: 8,
+        scale: 0.2,  // Increased from 0.065 (3x bigger)
+        count: 4,  // Reduced from 8
         area: 0.35,
         minY: 11,
         maxY: 18
@@ -344,7 +352,7 @@ function addAmbientModels() {
     addSceneModel({
         href: TURTLE_URL,
         scale: 0.5,
-        count: 2,
+        count: 1,  // Keep at 1
         area: 0.25,
         minY: 8,
         maxY: 16
@@ -354,7 +362,7 @@ function addAmbientModels() {
     addSceneModel({
         href: WHALE_URL,
         scale: 0.7,
-        count: 1,
+        count: 1,  // Keep at 1
         area: 0.9,
         minY: 24,
         maxY: 30,
@@ -365,7 +373,7 @@ function addAmbientModels() {
     addSceneModel({
         href: ORCA_URL,
         scale: 0.8,
-        count: 1,
+        count: 1,  // Keep at 1
         area: 0.85,
         minY: 22,
         maxY: 28,
@@ -376,7 +384,7 @@ function addAmbientModels() {
     addSceneModel({
         href: SPERM_WHALE_URL,
         scale: 0.8,
-        count: 1,
+        count: 1,  // Keep at 1
         area: 0.95,
         minY: 18,
         maxY: 26,
@@ -415,8 +423,13 @@ function addWaterSurface() {
 }
 
 function initPostProcessing() {
+    const ENABLE_BLOOM = true; // enable bloom so emissive fish visibly glow
+    if (!ENABLE_BLOOM) {
+        composer = null;
+        return;
+    }
     composer = new EffectComposer(renderer);
-    composer.setPixelRatio(window.devicePixelRatio);
+    composer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
     const renderPass = new RenderPass(scene, camera);
     bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), BLOOM_STRENGTH, BLOOM_RADIUS, BLOOM_THRESHOLD);
     bloomPass.threshold = BLOOM_THRESHOLD;
@@ -634,13 +647,13 @@ function loadStaticFish() {
     
     // Define different fish types for daytime with more variety
     const fishTypes = [
-        { path: ALIEN_FISH_URL, file: '', scale: 0.045 * FISH_SIZE_MULT, rotationOffsetY: 0, count: 12 },
-        { path: PEEPER_URL, file: '', scale: 0.015 * FISH_SIZE_MULT, rotationOffsetY: Math.PI, count: 10 },
-        { path: DISCUS_FISH_URL, file: '', scale: 0.018 * FISH_SIZE_MULT, rotationOffsetY: Math.PI / 2, count: 10 },
-        { path: STYLIZED_FISH_URL, file: '', scale: 0.016 * FISH_SIZE_MULT, rotationOffsetY: 0, count: 8 },
-        { path: PEEPER_URL, file: '', scale: 0.015 * FISH_SIZE_MULT, rotationOffsetY: Math.PI, count: 16 },
-        { path: DISCUS_FISH_URL, file: '', scale: 0.018 * FISH_SIZE_MULT, rotationOffsetY: Math.PI / 2, count: 16 },
-        { path: STYLIZED_FISH_URL, file: '', scale: 0.016 * FISH_SIZE_MULT, rotationOffsetY: 0, count: 14 },
+        { path: alienFishUrl, file: '', scale: 1.0, rotationOffsetY: 0, count: 6 },  // Match player scale
+        { path: arcticPeeperUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI, count: 5 },
+        { path: discusFishUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI / 2, count: 5 },
+        { path: stylizedFishUrl, file: '', scale: 1.0, rotationOffsetY: 0, count: 4 },
+        { path: arcticPeeperUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI, count: 8 },
+        { path: discusFishUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI / 2, count: 8 },
+        { path: stylizedFishUrl, file: '', scale: 1.0, rotationOffsetY: 0, count: 7 },
     ];
     
     let colorIndex = 0;
@@ -650,7 +663,7 @@ function loadStaticFish() {
             const fishy = new Fish(scene, {
                 modelPath: fishType.path,
                 modelFile: fishType.file,
-                scale: fishType.scale + Math.random() * fishType.scale * 0.4,
+                scale: fishType.scale + Math.random() * fishType.scale * 0.15,
                 color: palette[colorIndex % palette.length],
                 rotationOffsetY: fishType.rotationOffsetY + (Math.random() - 0.5) * 0.3,
                 position: new THREE.Vector3(
@@ -658,13 +671,13 @@ function loadStaticFish() {
                     6 + Math.random() * (WATER_SURFACE_Y - 15), // Keep below water surface
                     (Math.random() - 0.5) * PLANE_SIZE * 0.55
                 ),
-                moveSpeed: 2.2 + Math.random() * 2.0,
-                rotationSpeed: 2.8 + Math.random() * 1.5,
-                changeTargetDistance: 1.2 + Math.random() * 0.8,
+                moveSpeed: 1.2 + Math.random() * 1.2,
+                rotationSpeed: 2.0 + Math.random() * 1.0,
+                changeTargetDistance: 1.6 + Math.random() * 0.6,
                 worldBounds: worldBounds,
                 waterSurfaceY: WATER_SURFACE_Y,
                 canJump: Math.random() < 0.3, // 30% of fish can jump
-                radius: 1.5 * FISH_SIZE_MULT,
+                radius: 2.5,
                 materialModifier: (mat) => {
                     mat.roughness = 0.45;
                     mat.metalness = 0.08;
@@ -702,19 +715,19 @@ function loadGlowingFish() {
     // Define different fish types with varying glow intensities
     const fishTypes = [
         // Bright glowing fish (high intensity)
-        { path: ALIEN_FISH_URL, file: '', scale: 0.04 * FISH_SIZE_MULT, rotationOffsetY: 0, 
-            count: 18, intensity: 1.0, pulseSpeed: 2.2 },
-        { path: PEEPER_URL, file: '', scale: 0.012 * FISH_SIZE_MULT, rotationOffsetY: Math.PI, 
-            count: 20, intensity: 0.9, pulseSpeed: 2.5 },
-        { path: DISCUS_FISH_URL, file: '', scale: 0.014 * FISH_SIZE_MULT, rotationOffsetY: Math.PI / 2, 
-            count: 20, intensity: 0.8, pulseSpeed: 2.0 },
-        { path: STYLIZED_FISH_URL, file: '', scale: 0.016 * FISH_SIZE_MULT, rotationOffsetY: 0, 
-            count: 16, intensity: 0.95, pulseSpeed: 1.8 },
+        { path: alienFishUrl, file: '', scale: 1.0, rotationOffsetY: 0, 
+            count: 7, intensity: 2.4, pulseSpeed: 2.2 },
+        { path: arcticPeeperUrl, file: '', scale: 0.9, rotationOffsetY: Math.PI, 
+            count: 8, intensity: 2.1, pulseSpeed: 2.5 },
+        { path: discusFishUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI / 2, 
+            count: 8, intensity: 1.9, pulseSpeed: 2.0 },
+        { path: stylizedFishUrl, file: '', scale: 1.0, rotationOffsetY: 0, 
+            count: 6, intensity: 2.3, pulseSpeed: 1.8 },
         // Medium glowing fish (moderate intensity)
-        { path: ALIEN_FISH_URL, file: '', scale: 0.035 * FISH_SIZE_MULT, rotationOffsetY: Math.PI / 4, 
-            count: 14, intensity: 0.7, pulseSpeed: 3.0 },
-        { path: PEEPER_URL, file: '', scale: 0.010 * FISH_SIZE_MULT, rotationOffsetY: -Math.PI / 2, 
-            count: 16, intensity: 0.6, pulseSpeed: 2.8 },
+        { path: alienFishUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI / 4, 
+            count: 5, intensity: 1.6, pulseSpeed: 3.0 },
+        { path: arcticPeeperUrl, file: '', scale: 0.9, rotationOffsetY: -Math.PI / 2, 
+            count: 6, intensity: 1.4, pulseSpeed: 2.8 },
     ];
     
     let colorIndex = 0;
@@ -724,10 +737,10 @@ function loadGlowingFish() {
             const glowFish = new Fish(scene, {
                 modelPath: fishType.path,
                 modelFile: fishType.file,
-                scale: fishType.scale + Math.random() * fishType.scale * 0.35,
-                color: 0x0f1c3c, // Dark base color
+                scale: fishType.scale + Math.random() * fishType.scale * 0.15,
+                color: 0x0b1220, // Dark blue so emissive pops without flattening
                 emissiveColor: emissivePalette[colorIndex % emissivePalette.length],
-                emissiveIntensity: fishType.intensity + Math.random() * 0.3,
+                emissiveIntensity: fishType.intensity + Math.random() * 0.6,
                 emissivePulseSpeed: fishType.pulseSpeed + Math.random() * 1.0,
                 rotationOffsetY: fishType.rotationOffsetY + (Math.random() - 0.5) * 0.4,
                 position: new THREE.Vector3(
@@ -735,13 +748,13 @@ function loadGlowingFish() {
                     8 + Math.random() * (WATER_SURFACE_Y - 15),
                     (Math.random() - 0.5) * PLANE_SIZE * 0.5
                 ),
-                moveSpeed: 2.0 + Math.random() * 2.5,
-                rotationSpeed: 3.2 + Math.random() * 1.5,
+                moveSpeed: 1.2 + Math.random() * 1.4,
+                rotationSpeed: 2.4 + Math.random() * 1.1,
                 changeTargetDistance: 1.5 + Math.random() * 0.8,
                 worldBounds: worldBounds,
                 waterSurfaceY: WATER_SURFACE_Y,
                 canJump: Math.random() < 0.2, // 20% of glowing fish can jump
-                radius: 1.4 * FISH_SIZE_MULT,
+                radius: 1.4,
                 materialModifier: (mat) => {
                     mat.roughness = 0.25 + Math.random() * 0.15;
                     mat.metalness = 0.2 + Math.random() * 0.15;
@@ -765,7 +778,7 @@ function loadLargeCreatures() {
     
     // Blue Whale - slow, majestic
     const blueWhale = new Fish(scene, {
-        modelPath: WHALE_URL,
+        modelPath: blueWhaleUrl,
         modelFile: '',
         scale: 0.7,
         color: 0x4a7c9e,
@@ -790,8 +803,8 @@ function loadLargeCreatures() {
     
     // Orca - faster, more agile
     const orca = new Fish(scene, {
-        modelPath: ORCA_URL,
-        modelFile: '',
+        modelPath: './assets/fish_models/',
+        modelFile: 'female_orca.glb',
         scale: 0.8,
         color: 0x1a1a1a,
         position: new THREE.Vector3(
@@ -815,8 +828,8 @@ function loadLargeCreatures() {
     
     // Sperm Whale - deep diver
     const spermWhale = new Fish(scene, {
-        modelPath: SPERM_WHALE_URL,
-        modelFile: '',
+        modelPath: './assets/fish_models/',
+        modelFile: 'sperm_whale.glb',
         scale: 0.8,
         color: 0x5a6a7a,
         position: new THREE.Vector3(
@@ -913,7 +926,7 @@ function loadSchoolFish() {
         // School 1: Small cyan fish
         { 
             center: new THREE.Vector3(-80, 15, 60),
-            count: 15,
+            count: 8,  // Reduced from 15
             color: 0x00d4ff,
             emissive: 0x0088aa,
             emissiveIntensity: 0.3,
@@ -922,7 +935,7 @@ function loadSchoolFish() {
         // School 2: Small yellow fish
         { 
             center: new THREE.Vector3(70, 18, -50),
-            count: 18,
+            count: 9,  // Reduced from 18
             color: 0xffd700,
             emissive: 0xffaa00,
             emissiveIntensity: 0.4,
@@ -931,7 +944,7 @@ function loadSchoolFish() {
         // School 3: Small purple fish
         { 
             center: new THREE.Vector3(-50, 22, -80),
-            count: 12,
+            count: 6,  // Reduced from 12
             color: 0xaa88ff,
             emissive: 0x6644ff,
             emissiveIntensity: 0.5,
@@ -940,7 +953,7 @@ function loadSchoolFish() {
         // School 4: Small green fish
         { 
             center: new THREE.Vector3(90, 16, 70),
-            count: 14,
+            count: 7,  // Reduced from 14
             color: 0x00ffaa,
             emissive: 0x00aa66,
             emissiveIntensity: 0.35,
@@ -951,9 +964,9 @@ function loadSchoolFish() {
     schoolConfigs.forEach((config) => {
         for (let i = 0; i < config.count; i++) {
             const schoolFish = new Fish(scene, {
-                modelPath: ALIEN_FISH_URL,
+                modelPath: alienFishUrl,
                 modelFile: '',
-                scale: (0.02 + Math.random() * 0.008) * FISH_SIZE_MULT,
+                scale: 0.9 + Math.random() * 0.25,  // Match player size with slight variation
                 color: config.color,
                 emissiveColor: config.emissive,
                 emissiveIntensity: config.emissiveIntensity,
@@ -963,13 +976,13 @@ function loadSchoolFish() {
                     config.center.y + (Math.random() - 0.5) * config.spread * 0.5,
                     config.center.z + (Math.random() - 0.5) * config.spread
                 ),
-                moveSpeed: 3.5 + Math.random() * 1.5,
-                rotationSpeed: 4.5,
+                moveSpeed: 1.6 + Math.random() * 0.8,
+                rotationSpeed: 3.0,
                 changeTargetDistance: 1.0,
                 worldBounds: worldBounds,
                 waterSurfaceY: WATER_SURFACE_Y,
                 canJump: false, // School fish don't jump
-                radius: 0.9 * FISH_SIZE_MULT,
+                radius: 2.6,
                 materialModifier: (mat) => {
                     mat.roughness = 0.4;
                     mat.metalness = 0.15;
@@ -980,53 +993,6 @@ function loadSchoolFish() {
             nightFish.push(schoolFish);
         }
     });
-}
-
-function spawnFishCloud(options) {
-    const {
-        href,
-        count,
-        scale,
-        spread = 60,
-        yMin = 8,
-        yMax = 24,
-        speed = 3,
-        emissive = null,
-        emissiveIntensity = 0,
-        emissivePulse = 2.2
-    } = options;
-
-    for (let i = 0; i < count; i++) {
-        const fishy = new Fish(scene, {
-            modelPath: href,
-            modelFile: '',
-            scale: scale * (0.8 + Math.random() * 0.4),
-            color: 0x12324a,
-            emissiveColor: emissive,
-            emissiveIntensity: emissive ? emissiveIntensity * (0.8 + Math.random() * 0.4) : 0,
-            emissivePulseSpeed: emissivePulse + Math.random() * 0.8,
-            position: new THREE.Vector3(
-                (Math.random() - 0.5) * spread,
-                yMin + Math.random() * (yMax - yMin),
-                (Math.random() - 0.5) * spread
-            ),
-            moveSpeed: speed + Math.random() * 1.5,
-            rotationSpeed: 3.5,
-            changeTargetDistance: 1.2,
-            worldBounds: {
-                min: -PLANE_SIZE / 2,
-                max: PLANE_SIZE / 2,
-                minY: 5,
-                maxY: WATER_SURFACE_Y - 5
-            },
-            waterSurfaceY: WATER_SURFACE_Y,
-            radius: 1.1 * FISH_SIZE_MULT
-        });
-        guppyFish.push(fishy);
-        if (emissive) {
-            nightFish.push(fishy);
-        }
-    }
 }
 
 initControls();
@@ -1043,15 +1009,6 @@ loadStaticFish();
 loadGlowingFish();
 loadSchoolFish();
 loadLargeCreatures();
-// Extra nearby schools to make the scene feel dense
-spawnFishCloud({ href: STYLIZED_FISH_URL, count: 18, scale: 0.09 * FISH_SIZE_MULT, spread: 70, yMin: 10, yMax: 22, speed: 3.4 });
-spawnFishCloud({ href: DISCUS_FISH_URL, count: 16, scale: 0.08 * FISH_SIZE_MULT, spread: 65, yMin: 9, yMax: 20, speed: 3.2 });
-spawnFishCloud({ href: PEEPER_URL, count: 16, scale: 0.09 * FISH_SIZE_MULT, spread: 70, yMin: 12, yMax: 26, speed: 3.8 });
-spawnFishCloud({ href: ALIEN_FISH_URL, count: 10, scale: 0.075 * FISH_SIZE_MULT, spread: 60, yMin: 11, yMax: 22, speed: 3.6, emissive: 0x6effff, emissiveIntensity: 0.8, emissivePulse: 2.4 });
-// Dense glow clusters near the player so night looks busy
-spawnFishCloud({ href: ALIEN_FISH_URL, count: 18, scale: 0.065 * FISH_SIZE_MULT, spread: 45, yMin: 10, yMax: 20, speed: 3.2, emissive: 0x76f7ff, emissiveIntensity: 1.1, emissivePulse: 2.6 });
-spawnFishCloud({ href: STYLIZED_FISH_URL, count: 14, scale: 0.085 * FISH_SIZE_MULT, spread: 50, yMin: 12, yMax: 22, speed: 3.0, emissive: 0xff9af7, emissiveIntensity: 1.0, emissivePulse: 2.2 });
-spawnFishCloud({ href: DISCUS_FISH_URL, count: 12, scale: 0.08 * FISH_SIZE_MULT, spread: 45, yMin: 11, yMax: 21, speed: 3.4, emissive: 0x9bb3ff, emissiveIntensity: 1.05, emissivePulse: 2.8 });
 
 const cycleStart = performance.now();
 
@@ -1075,15 +1032,15 @@ function updateDayNight(elapsedMs) {
     const daylight = Math.max(0, sunY / 90);
     daylightFactor = daylight;
     const nightFactor = 1 - daylightFactor;
-    sun.intensity = 0.3 + daylight * 0.7; 
-    ambient.intensity = 0.2 + daylight * 0.4; 
+    sun.intensity = 0.3 + daylight * 0.6; // Reduced from 0.5 + daylight * 1.0
+    ambient.intensity = 0.3 + daylight * 0.4; // Reduced from 0.4 + daylight * 0.6
     if (causticsLight) {
-        causticsLight.intensity = 0.15 + daylight * 0.65;
+        causticsLight.intensity = 0.15 + daylight * 0.45; // Reduced for subtler caustics
     }
     if (bloomPass) {
         bloomPass.strength = BLOOM_STRENGTH * (0.4 + nightFactor * 1.6);
     }
-    renderer.toneMappingExposure = 0.95 + nightFactor * 0.4;
+    renderer.toneMappingExposure = 0.85 + nightFactor * 0.4; // Reduced base exposure from 1.0 to 0.85
     if (hudTimeLabel && hudCycleBar) {
         hudTimeLabel.textContent = daylightFactor > 0.2 ? 'Day' : 'Night';
         hudTimeLabel.style.color = daylightFactor > 0.2 ? '#ffe79a' : '#9ecbff';
@@ -1223,11 +1180,12 @@ function updateFish(delta) {
         tmpHeading.y = 0;
         if (tmpHeading.lengthSq() > 1e-4) {
             fish.rotation.y = Math.atan2(tmpHeading.x, tmpHeading.z);
+            playerHeading.copy(tmpHeading).normalize();
         }
     }
 
     // Camera follow
-    const followHeading = controlledFish === fish && tmpHeading.lengthSq() > 1e-4 ? tmpHeading : tmpForward.set(0, 0, -1);
+    const followHeading = playerHeading.lengthSq() > 1e-4 ? playerHeading : tmpForward.set(0, 0, -1);
     followOffset.copy(followHeading).normalize().multiplyScalar(-CAMERA_DISTANCE);
     followOffset.y += CAMERA_HEIGHT;
 
@@ -1266,6 +1224,11 @@ function animate() {
     const delta = clock.getDelta();
     updateDayNight(performance.now() - cycleStart);
     
+    // Update camera light position to follow camera
+    if (cameraLight) {
+        cameraLight.position.copy(camera.position);
+    }
+    
     // Animate water
     if (water) {
         water.material.uniforms['time'].value += delta;
@@ -1297,7 +1260,7 @@ function animate() {
         guppyFish.forEach((g) => g.update(delta));
     }
     if (nightFish.length > 0) {
-        const glow = Math.min(1.6, 0.3 + (1 - daylightFactor) * 1.4);
+        const glow = Math.min(1.4, 0.2 + (1 - daylightFactor) * 1.4);
         nightFish.forEach((g) => {
             g.setGlowMultiplier(glow);
             g.update(delta);
@@ -1334,11 +1297,6 @@ function animate() {
     }
 }
 animate();
-
-// Allow HMR to dispose/reload cleanly during dev.
-if (import.meta.hot) {
-    import.meta.hot.accept();
-}
 
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;

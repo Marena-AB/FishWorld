@@ -1,8 +1,33 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { KHRMaterialsPBRSpecularGlossiness } from './pbrSpecGlossExtension.js';
+import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 export class Fish {
+    // Shared loader and GLTF cache so multiple fish reuse parsed scenes/animations
+    static loader = new GLTFLoader();
+    static gltfCache = new Map();
+
+    static loadModel(modelPath, modelFile) {
+        const fullPath = modelFile ? modelPath + modelFile : modelPath;
+        const existing = Fish.gltfCache.get(fullPath);
+        if (existing) {
+            return existing;
+        }
+
+        const promise = Fish.loader.loadAsync(fullPath)
+            .then((gltf) => {
+                Fish.gltfCache.set(fullPath, Promise.resolve(gltf));
+                return gltf;
+            })
+            .catch((err) => {
+                Fish.gltfCache.delete(fullPath);
+                throw err;
+            });
+
+        Fish.gltfCache.set(fullPath, promise);
+        return promise;
+    }
+
     constructor(scene, options = {}) {
         this.scene = scene;
         
@@ -77,72 +102,63 @@ export class Fish {
         }
     }
     
-    load() {
-        const loader = new GLTFLoader();
-        loader.register((parser) => new KHRMaterialsPBRSpecularGlossiness(parser));
-        
-        // Check if modelPath is a full URL (from webpack import) or a directory path
-        const fullPath = this.modelFile ? this.modelPath + this.modelFile : this.modelPath;
-        
-        loader.load(
-            fullPath,
-            (gltf) => {
-                this.model = gltf.scene;
-                
-                this.model.scale.set(this.scale, this.scale, this.scale);
-                
-                this.model.position.copy(this.position);
-                // Ensure initial position is below water surface
-                if (this.model.position.y > this.waterSurfaceY - 2) {
-                    this.model.position.y = this.waterSurfaceY - 2;
-                }
-                this.previousPosition.copy(this.model.position);
-                
-                if (this.canMove) {
-                    this.pickRandomTarget();
-                }
-                
-                this.model.traverse((obj) => {
-                    if (obj.isMesh) {
-                        obj.castShadow = true;
-                        obj.receiveShadow = true;
+    async load() {
+        try {
+            const gltf = await Fish.loadModel(this.modelPath, this.modelFile);
+            // Clone to avoid sharing skeletons/materials between fish
+            this.model = clone(gltf.scene);
+            
+            this.model.scale.set(this.scale, this.scale, this.scale);
+            
+            this.model.position.copy(this.position);
+            // Ensure initial position is below water surface
+            if (this.model.position.y > this.waterSurfaceY - 2) {
+                this.model.position.y = this.waterSurfaceY - 2;
+            }
+            this.previousPosition.copy(this.model.position);
+            
+            if (this.canMove) {
+                this.pickRandomTarget();
+            }
+            
+            this.model.traverse((obj) => {
+                if (obj.isMesh) {
+                    obj.castShadow = true;
+                    obj.receiveShadow = true;
 
-                        obj.material = obj.material.clone();
-                        const mat = obj.material;
-                        if (this.baseColor) {
-                            mat.color.copy(this.baseColor);
-                        }
-                        if (this.emissiveColor) {
-                            mat.emissive = this.emissiveColor.clone();
-                            mat.emissiveIntensity = this.emissiveIntensity;
-                        }
-                        if (this.materialModifier) {
-                            this.materialModifier(mat);
-                        }
-                        this.materials.push(mat);
+                    obj.material = obj.material.clone();
+                    const mat = obj.material;
+                    if (this.baseColor) {
+                        mat.color.copy(this.baseColor);
                     }
+                    if (this.emissiveColor) {
+                        mat.emissive = this.emissiveColor.clone();
+                        mat.emissiveIntensity = this.emissiveIntensity;
+                    }
+                    if (this.materialModifier) {
+                        this.materialModifier(mat);
+                    }
+                    this.materials.push(mat);
+                }
+            });
+            
+            if (gltf.animations && gltf.animations.length > 0) {
+                this.mixer = new THREE.AnimationMixer(this.model);
+                
+                gltf.animations.forEach((clip) => {
+                    const action = this.mixer.clipAction(clip);
+                    action.play();
                 });
                 
-                if (gltf.animations && gltf.animations.length > 0) {
-                    this.mixer = new THREE.AnimationMixer(this.model);
-                    
-                    gltf.animations.forEach((clip) => {
-                        const action = this.mixer.clipAction(clip);
-                        action.play();
-                    });
-                    
-                    console.log(`Fish animations loaded: ${gltf.animations.length} animation(s)`);
-                } else {
-                    console.log('No animations found in fish model');
-                }
-                
-                this.scene.add(this.model);
-            },
-            undefined,
-            (error) => {
-                console.error('Error loading fish:', error);
+                console.log(`Fish animations loaded: ${gltf.animations.length} animation(s)`);
+            } else {
+                console.log('No animations found in fish model');
             }
-        );
+            
+            this.scene.add(this.model);
+        } catch (error) {
+            console.error('Error loading fish:', error);
+        }
     }
     
     pickRandomTarget() {
