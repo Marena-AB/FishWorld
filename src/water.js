@@ -77,10 +77,12 @@ let fish;
 let mixer;
 let guppyFish = [];
 let nightFish = [];
+let largeFish = []; // Array for large ambient fish
 let rocks = [];
 let kelp = [];
 const ambientActors = [];
 const ambientMixers = [];
+const ambientDrifters = [];
 let dunes;
 let composer;
 let bloomPass;
@@ -144,6 +146,12 @@ const STYLIZED_FISH_URL = new URL('./assets/stylized_fish.glb', import.meta.url)
 const DISCUS_FISH_URL = new URL('./assets/discus_fish.glb', import.meta.url).href;
 const PEEPER_URL = new URL('./assets/arctic_peeper.glb', import.meta.url).href;
 const ALIEN_FISH_URL = new URL('./assets/alien_fish_animated.glb', import.meta.url).href;
+// These GLTFs reference external .bin/textures; load from the copied assets folder to keep paths intact
+const KOI_FISH_URL = 'assets/fish_models/koi_fish/scene.gltf';
+const TUNA_FISH_URL = 'assets/fish_models/tuna_fish/scene.gltf';
+const SCHOOL_FISH_URL = 'assets/fish_models/school_of_fish/scene.gltf';
+const STAR_FISH_URL = 'assets/fish_models/star_fish/scene.gltf';
+const ANIMATED_FISH_URL = 'assets/fish_models/fish_animated/scene.gltf';
 
 // Controls
 let controls;
@@ -281,7 +289,12 @@ function addRocksAndPlants() {
 }
 
 function addSceneModel(options) {
-    const { href, scale = 1, count = 1, area = 0.5, minY = 5, maxY = 35, yOffset = 0, rotation = null, snap = true } = options;
+    const { href, scale = 1, count = 1, area = 0.5, minY = 5, maxY = 35, yOffset = 0, rotation = null, snap = true, wander = false, wanderSpeed = 0.6 } = options;
+    const makeTarget = () => new THREE.Vector3(
+        (Math.random() - 0.5) * PLANE_SIZE * area,
+        minY + Math.random() * (maxY - minY),
+        (Math.random() - 0.5) * PLANE_SIZE * area
+    );
     loader.load(
         href,
         (gltf) => {
@@ -315,6 +328,16 @@ function addSceneModel(options) {
                 }
                 scene.add(instance);
                 ambientActors.push(instance);
+                if (wander) {
+                    ambientDrifters.push({
+                        mesh: instance,
+                        target: makeTarget(),
+                        speed: wanderSpeed * (0.7 + Math.random() * 0.6), // slight variance
+                        minY,
+                        maxY,
+                        area
+                    });
+                }
                 if (animations.length > 0) {
                     const mix = new THREE.AnimationMixer(instance);
                     animations.forEach((clip) => mix.clipAction(clip).play());
@@ -342,31 +365,37 @@ function addAmbientModels() {
     // Stylized mid-water fish
     addSceneModel({
         href: STYLIZED_FISH_URL,
-        scale: 0.35,  // Increased from 0.12 (3x bigger)
+        scale: 0.18,  // Reduced so ambient stylized fish aren't oversized
         count: 6,  // Reduced from 12
         area: 0.45,
         minY: 10,
-        maxY: 20
+        maxY: 20,
+        wander: true,
+        wanderSpeed: 2.0
     });
 
     // Discus fish school
     addSceneModel({
         href: DISCUS_FISH_URL,
-        scale: 0.3,  // Increased from 0.1 (3x bigger)
+        scale: 0.15,  // Reduced to better match player size
         count: 6,  // Reduced from 14
         area: 0.4,
         minY: 9,
-        maxY: 18
+        maxY: 18,
+        wander: true,
+        wanderSpeed: 1.8
     });
 
     // Arctic peepers near surface
     addSceneModel({
         href: PEEPER_URL,
-        scale: 0.35,  // Increased from 0.12 (3x bigger)
+        scale: 0.18,  // Reduced to better match player size
         count: 6,  // Reduced from 14
         area: 0.45,
         minY: 16,
-        maxY: 24
+        maxY: 24,
+        wander: true,
+        wanderSpeed: 1.7
     });
 
     // Alien fish with animations for night vibe
@@ -376,7 +405,9 @@ function addAmbientModels() {
         count: 4,  // Reduced from 8
         area: 0.35,
         minY: 11,
-        maxY: 18
+        maxY: 18,
+        wander: true,
+        wanderSpeed: 1.6
     });
 
     // Turtle drifting near the player space
@@ -397,7 +428,9 @@ function addAmbientModels() {
         area: 0.9,
         minY: 24,
         maxY: 30,
-        snap: false
+        snap: false,
+        wander: true,
+        wanderSpeed: 0.65
     });
 
     // Distant orca
@@ -408,7 +441,9 @@ function addAmbientModels() {
         area: 0.85,
         minY: 22,
         maxY: 28,
-        snap: false
+        snap: false,
+        wander: true,
+        wanderSpeed: 0.8
     });
 
     // Deep sperm whale silhouette
@@ -419,8 +454,39 @@ function addAmbientModels() {
         area: 0.95,
         minY: 18,
         maxY: 26,
-        snap: false
+        snap: false,
+        wander: true,
+        wanderSpeed: 0.55
     });
+}
+
+function updateAmbientDrifters(delta) {
+    for (let i = 0; i < ambientDrifters.length; i++) {
+        const drift = ambientDrifters[i];
+        const mesh = drift.mesh;
+        if (!mesh) { continue; }
+        const dir = drift.target.clone().sub(mesh.position);
+        const dist = dir.length();
+        if (dist < 1) {
+            drift.target = new THREE.Vector3(
+                (Math.random() - 0.5) * PLANE_SIZE * drift.area,
+                drift.minY + Math.random() * (drift.maxY - drift.minY),
+                (Math.random() - 0.5) * PLANE_SIZE * drift.area
+            );
+            continue;
+        }
+        dir.multiplyScalar(1 / dist);
+        mesh.position.addScaledVector(dir, drift.speed * delta);
+        // Clamp to bounds and below surface
+        const extent = (PLANE_SIZE * drift.area) * 0.5;
+        mesh.position.x = THREE.MathUtils.clamp(mesh.position.x, -extent, extent);
+        mesh.position.z = THREE.MathUtils.clamp(mesh.position.z, -extent, extent);
+        mesh.position.y = THREE.MathUtils.clamp(mesh.position.y, drift.minY, Math.min(drift.maxY, WATER_SURFACE_Y - 2));
+        // Face direction of travel
+        const yaw = Math.atan2(dir.x, dir.z);
+        mesh.rotation.y = yaw;
+        mesh.updateMatrixWorld();
+    }
 }
 
 let water;
@@ -679,12 +745,19 @@ function loadStaticFish() {
     // Define different fish types for daytime with more variety
     const fishTypes = [
         { path: alienFishUrl, file: '', scale: 1.0, rotationOffsetY: 0, count: 6 },  // Match player scale
-        { path: arcticPeeperUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI, count: 5 },
+        { path: arcticPeeperUrl, file: '', scale: 0.25, rotationOffsetY: Math.PI, count: 5 },  // REDUCED from 0.95 - this was too big!
         { path: discusFishUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI / 2, count: 5 },
         { path: stylizedFishUrl, file: '', scale: 1.0, rotationOffsetY: 0, count: 4 },
-        { path: arcticPeeperUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI, count: 8 },
+        { path: arcticPeeperUrl, file: '', scale: 0.25, rotationOffsetY: Math.PI, count: 8 },  // REDUCED from 0.95 - this was too big!
         { path: discusFishUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI / 2, count: 8 },
         { path: stylizedFishUrl, file: '', scale: 1.0, rotationOffsetY: 0, count: 7 },
+        // Additional creatures from fish_models
+        // Models from fish_models/ come in very large world units; scale them down
+        { path: KOI_FISH_URL, file: '', scale: 0.35, rotationOffsetY: 0, count: 5, yRange: { min: 6, max: 18 } },
+        { path: TUNA_FISH_URL, file: '', scale: 0.28, rotationOffsetY: Math.PI / 2, count: 4, yRange: { min: 10, max: 28 } },
+        { path: SCHOOL_FISH_URL, file: '', scale: 0.2, rotationOffsetY: 0, count: 3, yRange: { min: 12, max: 26 } },
+        { path: ANIMATED_FISH_URL, file: '', scale: 0.08, rotationOffsetY: 0, count: 6, yRange: { min: 8, max: 24 } },  // REDUCED from 0.25 - this was too big!
+        { path: STAR_FISH_URL, file: '', scale: 0.3, rotationOffsetY: 0, count: 6, yRange: { min: 5, max: 12 }, moveSpeed: 0.4, rotationSpeed: 1.2, canJump: false }
     ];
     
     let colorIndex = 0;
@@ -692,7 +765,7 @@ function loadStaticFish() {
     // Spawn multiple of each type
     fishTypes.forEach((fishType) => {
         for (let i = 0; i < fishType.count; i++) {
-            const yRange = { min: 6, max: WATER_SURFACE_Y - 15 };
+            const yRange = fishType.yRange || { min: 6, max: WATER_SURFACE_Y - 15 };
             const pos = getSpawnPosition(worldBounds, 25, placed, yRange);
             const fishy = new Fish(scene, {
                 modelPath: fishType.path,
@@ -701,12 +774,14 @@ function loadStaticFish() {
                 color: palette[colorIndex % palette.length],
                 rotationOffsetY: fishType.rotationOffsetY + (Math.random() - 0.5) * 0.3,
                 position: pos,
-                moveSpeed: 1.2 + Math.random() * 1.2,
-                rotationSpeed: 2.0 + Math.random() * 1.0,
-                changeTargetDistance: 1.6 + Math.random() * 0.6,
+                moveSpeed: (fishType.moveSpeed || 1.2) + Math.random() * 1.2,
+                rotationSpeed: (fishType.rotationSpeed || 2.0) + Math.random() * 1.0,
+                changeTargetDistance: 15.0 + Math.random() * 10.0,
+                maxTravelTime: 12.0 + Math.random() * 8.0,
+                minTravelTime: 6.0 + Math.random() * 4.0,
                 worldBounds: worldBounds,
                 waterSurfaceY: WATER_SURFACE_Y,
-                canJump: Math.random() < 0.3, // 30% of fish can jump
+                canJump: fishType.canJump !== undefined ? fishType.canJump : Math.random() < 0.3,
                 radius: 2.5,
                 materialModifier: (mat) => {
                     mat.roughness = 0.45;
@@ -747,8 +822,8 @@ function loadGlowingFish() {
         // Bright glowing fish (high intensity)
         { path: alienFishUrl, file: '', scale: 1.0, rotationOffsetY: 0, 
             count: 7, intensity: 2.4, pulseSpeed: 2.2 },
-        { path: arcticPeeperUrl, file: '', scale: 0.9, rotationOffsetY: Math.PI, 
-            count: 8, intensity: 2.1, pulseSpeed: 2.5 },
+        { path: arcticPeeperUrl, file: '', scale: 0.25, rotationOffsetY: Math.PI, 
+            count: 8, intensity: 2.1, pulseSpeed: 2.5 },  // REDUCED from 0.9
         { path: discusFishUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI / 2, 
             count: 8, intensity: 1.9, pulseSpeed: 2.0 },
         { path: stylizedFishUrl, file: '', scale: 1.0, rotationOffsetY: 0, 
@@ -756,8 +831,8 @@ function loadGlowingFish() {
         // Medium glowing fish (moderate intensity)
         { path: alienFishUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI / 4, 
             count: 5, intensity: 1.6, pulseSpeed: 3.0 },
-        { path: arcticPeeperUrl, file: '', scale: 0.9, rotationOffsetY: -Math.PI / 2, 
-            count: 6, intensity: 1.4, pulseSpeed: 2.8 },
+        { path: arcticPeeperUrl, file: '', scale: 0.25, rotationOffsetY: -Math.PI / 2, 
+            count: 6, intensity: 1.4, pulseSpeed: 2.8 },  // REDUCED from 0.9
     ];
     
     let colorIndex = 0;
@@ -779,7 +854,9 @@ function loadGlowingFish() {
                 position: pos,
                 moveSpeed: 1.2 + Math.random() * 1.4,
                 rotationSpeed: 2.4 + Math.random() * 1.1,
-                changeTargetDistance: 1.5 + Math.random() * 0.8,
+                changeTargetDistance: 15.0 + Math.random() * 10.0,
+                maxTravelTime: 12.0 + Math.random() * 8.0,
+                minTravelTime: 6.0 + Math.random() * 4.0,
                 worldBounds: worldBounds,
                 waterSurfaceY: WATER_SURFACE_Y,
                 canJump: Math.random() < 0.2, // 20% of glowing fish can jump
@@ -796,12 +873,11 @@ function loadGlowingFish() {
 }
 
 // Large moving creatures (whales, orcas) that swim around
-let largeFish = [];
 function loadLargeCreatures() {
     const worldBounds = {
         min: -PLANE_SIZE / 2,
         max: PLANE_SIZE / 2,
-        minY: 15,
+        minY: 20,  // INCREASED from 15 - keep whales well above ocean floor
         maxY: WATER_SURFACE_Y - 3  // Keep large creatures below water surface
     };
     
@@ -809,20 +885,22 @@ function loadLargeCreatures() {
     const blueWhale = new Fish(scene, {
         modelPath: blueWhaleUrl,
         modelFile: '',
-        scale: 0.7,
+        scale: 1.8,  // INCREASED from 1.2 - blue whales are MASSIVE in real life
         color: 0x4a7c9e,
         position: new THREE.Vector3(
             (Math.random() - 0.5) * PLANE_SIZE * 0.4,
-            25 + Math.random() * 10,
+            30 + Math.random() * 10,  // INCREASED from 25 - spawn higher to avoid terrain
             (Math.random() - 0.5) * PLANE_SIZE * 0.4
         ),
-        moveSpeed: 10.0,              // give whales noticeable translation
+        moveSpeed: 10.0,
         rotationSpeed: 1.2,
-        changeTargetDistance: 6,
+        changeTargetDistance: 40,
+        maxTravelTime: 20.0,
+        minTravelTime: 10.0,
         worldBounds: worldBounds,
         waterSurfaceY: WATER_SURFACE_Y,
-        canJump: true,
-        radius: 8,
+        canJump: false,  // CHANGED: Whales shouldn't jump, prevents getting stuck
+        radius: 6,  // REDUCED back to 6 - large radius was causing too many collisions
         materialModifier: (mat) => {
             mat.roughness = 0.6;
             mat.metalness = 0.1;
@@ -834,20 +912,22 @@ function loadLargeCreatures() {
     const orca = new Fish(scene, {
         modelPath: femaleOrcaUrl,
         modelFile: '',
-        scale: 0.9,
+        scale: 1.6,  // INCREASED from 1.3 - orcas are large predators
         color: 0x1a1a1a,
         position: new THREE.Vector3(
             (Math.random() - 0.5) * PLANE_SIZE * 0.5,
-            20 + Math.random() * 8,
+            25 + Math.random() * 10,  // INCREASED from 20 - spawn higher to avoid terrain
             (Math.random() - 0.5) * PLANE_SIZE * 0.5
         ),
         moveSpeed: 12.0,
         rotationSpeed: 1.6,
-        changeTargetDistance: 6,
+        changeTargetDistance: 40,
+        maxTravelTime: 18.0,
+        minTravelTime: 9.0,
         worldBounds: worldBounds,
         waterSurfaceY: WATER_SURFACE_Y,
-        canJump: true,
-        radius: 6,
+        canJump: false,  // CHANGED: Orcas shouldn't jump in this implementation, prevents getting stuck
+        radius: 5,  // REDUCED back to 5 - large radius was causing too many collisions
         materialModifier: (mat) => {
             mat.roughness = 0.5;
             mat.metalness = 0.15;
@@ -857,22 +937,24 @@ function loadLargeCreatures() {
     
     // Sperm Whale - deep diver
     const spermWhale = new Fish(scene, {
-        modelPath: './assets/fish_models/',
-        modelFile: 'sperm_whale.glb',
-        scale: 0.8,
+        modelPath: SPERM_WHALE_URL,
+        modelFile: '',
+        scale: 1.5,  // INCREASED from 1.1 - sperm whales are huge deep-sea giants
         color: 0x5a6a7a,
         position: new THREE.Vector3(
             (Math.random() - 0.5) * PLANE_SIZE * 0.6,
-            18 + Math.random() * 8,
+            22 + Math.random() * 10,  // INCREASED from 18 - spawn higher to avoid terrain
             (Math.random() - 0.5) * PLANE_SIZE * 0.6
         ),
         moveSpeed: 3.5,
         rotationSpeed: 1.2,
         changeTargetDistance: 25,
+        maxTravelTime: 25.0,
+        minTravelTime: 15.0,
         worldBounds: worldBounds,
         waterSurfaceY: WATER_SURFACE_Y,
-        canJump: true,
-        radius: 7,
+        canJump: false,  // CHANGED: Sperm whales shouldn't jump, prevents getting stuck
+        radius: 5,  // REDUCED back to 5 - large radius was causing too many collisions
         materialModifier: (mat) => {
             mat.roughness = 0.7;
             mat.metalness = 0.05;
@@ -901,10 +983,14 @@ function gatherFishColliders() {
 function resolveAICollisions(colliders) {
     for (let i = 0; i < colliders.length; i++) {
         const a = colliders[i];
+        // Skip whales in collision resolution - they're too big and get stuck
+        if (a.scale >= 1.4) { continue; }
         const posA = a.model.position;
         const radiusA = a.radius || 1.5;
         for (let j = i + 1; j < colliders.length; j++) {
             const b = colliders[j];
+            // Skip whales in collision resolution
+            if (b.scale >= 1.4) { continue; }
             const posB = b.model.position;
             const radiusB = b.radius || 1.5;
             tmpCollide.subVectors(posA, posB);
@@ -1007,7 +1093,9 @@ function loadSchoolFish() {
                 ),
                 moveSpeed: 1.6 + Math.random() * 0.8,
                 rotationSpeed: 3.0,
-                changeTargetDistance: 1.0,
+                changeTargetDistance: 12.0 + Math.random() * 8.0,
+                maxTravelTime: 10.0 + Math.random() * 6.0,
+                minTravelTime: 5.0 + Math.random() * 3.0,
                 worldBounds: worldBounds,
                 waterSurfaceY: WATER_SURFACE_Y,
                 canJump: false, // School fish don't jump
@@ -1276,6 +1364,9 @@ function animate() {
 
     if (ambientMixers.length > 0) {
         ambientMixers.forEach((m) => m.update(delta));
+    }
+    if (ambientDrifters.length > 0) {
+        updateAmbientDrifters(delta);
     }
     if (kelp.length > 0) {
         const t = performance.now() * 0.001;

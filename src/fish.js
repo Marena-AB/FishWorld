@@ -56,9 +56,9 @@ export class Fish {
         
         this.moveSpeed = options.moveSpeed || 5.0;
         this.rotationSpeed = options.rotationSpeed || 3.0;
-        this.changeTargetDistance = options.changeTargetDistance || 10.0;
-        this.maxTravelTime = options.maxTravelTime || 5.0;
-        this.minTravelTime = options.minTravelTime || 2.0;
+        this.changeTargetDistance = options.changeTargetDistance || 25.0;
+        this.maxTravelTime = options.maxTravelTime || 15.0;
+        this.minTravelTime = options.minTravelTime || 8.0;
         this.canMove = options.canMove !== undefined ? options.canMove : true;
         this.worldBounds = options.worldBounds || {
             min: -400,
@@ -162,13 +162,18 @@ export class Fish {
     }
     
     pickRandomTarget() {
-        const boundary = (this.worldBounds.max - this.worldBounds.min) * 0.4;
+        // Let fish roam nearly the full world bounds (leave a small margin so they don't clip the edge)
+        const margin = (this.worldBounds.max - this.worldBounds.min) * 0.05;
+        const minX = this.worldBounds.min + margin;
+        const maxX = this.worldBounds.max - margin;
+        const minZ = this.worldBounds.min + margin;
+        const maxZ = this.worldBounds.max - margin;
         const minY = this.worldBounds.minY + 5;
         // Ensure target is always safely below water surface
         const maxY = Math.min(this.worldBounds.maxY - 5, this.waterSurfaceY - 5);
         
-        const randomX = (Math.random() - 0.5) * 2 * boundary;
-        const randomZ = (Math.random() - 0.5) * 2 * boundary;
+        const randomX = minX + Math.random() * (maxX - minX);
+        const randomZ = minZ + Math.random() * (maxZ - minZ);
         const randomY = minY + Math.random() * (maxY - minY);
         
         this.targetPosition.set(randomX, randomY, randomZ);
@@ -255,13 +260,25 @@ export class Fish {
                 }
             }
             
-            const boundary = (this.worldBounds.max - this.worldBounds.min) * 0.45;
-            if (Math.abs(newPosition.x) > boundary) {
-                newPosition.x = Math.sign(newPosition.x) * boundary;
+            const margin = (this.worldBounds.max - this.worldBounds.min) * 0.02;
+            const minX = this.worldBounds.min + margin;
+            const maxX = this.worldBounds.max - margin;
+            const minZ = this.worldBounds.min + margin;
+            const maxZ = this.worldBounds.max - margin;
+            if (newPosition.x < minX) {
+                newPosition.x = minX;
                 this.pickRandomTarget();
             }
-            if (Math.abs(newPosition.z) > boundary) {
-                newPosition.z = Math.sign(newPosition.z) * boundary;
+            if (newPosition.x > maxX) {
+                newPosition.x = maxX;
+                this.pickRandomTarget();
+            }
+            if (newPosition.z < minZ) {
+                newPosition.z = minZ;
+                this.pickRandomTarget();
+            }
+            if (newPosition.z > maxZ) {
+                newPosition.z = maxZ;
                 this.pickRandomTarget();
             }
             if (newPosition.y < this.worldBounds.minY + 2) {
