@@ -57,7 +57,7 @@ scene.fog = new THREE.Fog(dayUnderwaterFog.clone(), 80, 350); // Push fog much f
 
 // Camera
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1200);
-camera.position.set(0, 10, 50); 
+camera.position.set(0, 10, 50);
 
 // Renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -91,6 +91,7 @@ let hudTimeLabel;
 let hudCycleBar;
 const aiFish = []; // Array to hold all AI fish
 let controlledFish = null;
+let underwaterAmbience = null;
 const fishVelocity = new THREE.Vector3();
 const cameraOffset = new THREE.Vector3();
 const followOffset = new THREE.Vector3();
@@ -165,7 +166,7 @@ function initControls() {
     
     controls.maxPolarAngle = Math.PI / 2 - 0.1; 
     controls.minDistance = 5; 
-    controls.maxDistance = 300; 
+    controls.maxDistance = 500; 
 
 }
 
@@ -1112,6 +1113,52 @@ function loadSchoolFish() {
     });
 }
 
+function initAudio() {
+    try {
+        const ambienceUrl = new URL('./assets/sounds/Underwater Ambient.mp3', import.meta.url).href;
+        underwaterAmbience = new Audio(ambienceUrl);
+        underwaterAmbience.loop = true;
+        underwaterAmbience.volume = 0.25;
+        underwaterAmbience.preload = 'auto';
+        
+        function tryPlayAudio() {
+            if (underwaterAmbience && underwaterAmbience.readyState >= 2) {
+                const playPromise = underwaterAmbience.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(err => {
+                        console.log('Underwater ambience autoplay blocked, will start on user interaction');
+                    });
+                }
+            }
+        }
+        
+        underwaterAmbience.addEventListener('canplay', tryPlayAudio, { once: true });
+        underwaterAmbience.addEventListener('loadeddata', tryPlayAudio, { once: true });
+        
+        document.addEventListener('click', () => {
+            if (underwaterAmbience && underwaterAmbience.paused) {
+                underwaterAmbience.play().catch(err => {
+                    console.log('Could not play underwater ambience:', err);
+                });
+            }
+        }, { once: true });
+        
+        document.addEventListener('keydown', () => {
+            if (underwaterAmbience && underwaterAmbience.paused) {
+                underwaterAmbience.play().catch(err => {
+                    console.log('Could not play underwater ambience:', err);
+                });
+            }
+        }, { once: true });
+        
+        underwaterAmbience.addEventListener('error', (e) => {
+            console.log('Could not load underwater ambience audio');
+        });
+    } catch (e) {
+        console.log('Could not initialize underwater ambience:', e);
+    }
+}
+
 initControls();
 initLights();
 buildSandDunes();
@@ -1126,6 +1173,7 @@ loadStaticFish();
 loadGlowingFish();
 loadSchoolFish();
 loadLargeCreatures();
+initAudio();
 
 const cycleStart = performance.now();
 
@@ -1190,11 +1238,12 @@ function updateControlledFish(delta) {
     }
     
     if (controlledFish.model && controlledFish.isControlled) {
+        const startPos = controlledFish.model.position.clone();
+
         const tmpForward = new THREE.Vector3();
         const tmpRight = new THREE.Vector3();
         const upVector = new THREE.Vector3(0, 1, 0);
         const tmpHeading = new THREE.Vector3();
-        const desiredCamPos = new THREE.Vector3();
         const accel = new THREE.Vector3();
         
         accel.set(0, 0, 0);
@@ -1229,21 +1278,31 @@ function updateControlledFish(delta) {
             baseRotation += controlledFish.rotationOffsetY || 0;
             controlledFish.model.rotation.y = baseRotation;
         }
-
-        if (cameraOffset.lengthSq() === 0) {
-            cameraOffset.copy(camera.position).sub(controlledFish.model.position);
+        
+        const verticalVelocity = controlledFish.velocity.y;
+        const horizontalSpeed = Math.sqrt(controlledFish.velocity.x * controlledFish.velocity.x + controlledFish.velocity.z * controlledFish.velocity.z);
+        const maxPitchAngle = Math.PI / 6;
+        
+        if (horizontalSpeed > 0.1) {
+            const pitchRatio = verticalVelocity / (horizontalSpeed + Math.abs(verticalVelocity));
+            controlledFish.model.rotation.x = pitchRatio * maxPitchAngle;
+        } else {
+            controlledFish.model.rotation.x *= Math.pow(0.9, delta * 60);
         }
-        desiredCamPos.copy(cameraOffset).add(controlledFish.model.position);
-        const followLerp = 1 - Math.exp(-CAMERA_FOLLOW_RESPONSE * delta);
-        camera.position.lerp(desiredCamPos, followLerp);
-        controls.target.lerp(controlledFish.model.position, followLerp);
+
+        const displacement = new THREE.Vector3().subVectors(controlledFish.model.position, startPos);
+        
+        camera.position.add(displacement);
+        
+        controls.target.copy(controlledFish.model.position);
     }
 }
 
 function updateFish(delta) {
     if (!fish) return;
-    
-    // Player-controlled movement
+
+    const startPos = fish.position.clone();
+
     if (controlledFish === fish) {
         accel.set(0, 0, 0);
         camera.getWorldDirection(tmpForward);
@@ -1270,20 +1329,16 @@ function updateFish(delta) {
         fishVelocity.multiplyScalar(Math.pow(SWIM_DRAG, delta * 60));
         fish.position.addScaledVector(fishVelocity, delta);
     } else {
-        // If not controlled, keep drift minimal
         fishVelocity.multiplyScalar(Math.pow(SWIM_DRAG, delta * 60));
     }
-    
-    // Keep player fish below water surface
+
     if (fish.position.y > WATER_SURFACE_Y - 3) {
         fish.position.y = WATER_SURFACE_Y - 3;
-        fishVelocity.y = Math.min(0, fishVelocity.y); // Stop upward movement
+        fishVelocity.y = Math.min(0, fishVelocity.y);
     }
 
-    // Slide off other fish
     resolvePlayerCollisions(gatherFishColliders());
 
-    // Keep player within world bounds
     const clampedX = THREE.MathUtils.clamp(fish.position.x, -PLAYER_BOUNDS, PLAYER_BOUNDS);
     const clampedY = THREE.MathUtils.clamp(fish.position.y, PLAYER_MIN_Y, PLAYER_MAX_Y);
     const clampedZ = THREE.MathUtils.clamp(fish.position.z, -PLAYER_BOUNDS, PLAYER_BOUNDS);
@@ -1291,7 +1346,6 @@ function updateFish(delta) {
     if (clampedY !== fish.position.y) { fishVelocity.y = 0; fish.position.y = clampedY; }
     if (clampedZ !== fish.position.z) { fishVelocity.z = 0; fish.position.z = clampedZ; }
 
-    // Orient fish to direction of travel 
     if (controlledFish === fish) {
         tmpHeading.copy(fishVelocity);
         tmpHeading.y = 0;
@@ -1299,18 +1353,24 @@ function updateFish(delta) {
             fish.rotation.y = Math.atan2(tmpHeading.x, tmpHeading.z);
             playerHeading.copy(tmpHeading).normalize();
         }
+
+        const verticalVelocity = fishVelocity.y;
+        const horizontalSpeed = Math.sqrt(fishVelocity.x * fishVelocity.x + fishVelocity.z * fishVelocity.z);
+        const maxPitchAngle = Math.PI / 6;
+
+        if (horizontalSpeed > 0.1) {
+            const pitchRatio = verticalVelocity / (horizontalSpeed + Math.abs(verticalVelocity));
+            fish.rotation.x = pitchRatio * maxPitchAngle;
+        } else {
+            fish.rotation.x *= Math.pow(0.9, delta * 60);
+        }
     }
 
-    // Camera follow
-    const followHeading = playerHeading.lengthSq() > 1e-4 ? playerHeading : tmpForward.set(0, 0, -1);
-    followOffset.copy(followHeading).normalize().multiplyScalar(-CAMERA_DISTANCE);
-    followOffset.y += CAMERA_HEIGHT;
-
-    desiredCamPos.copy(fish.position).add(followOffset);
-    const followLerp = 1 - Math.exp(-CAMERA_FOLLOW_RESPONSE * delta);
-    camera.position.lerp(desiredCamPos, followLerp);
-    controls.target.lerp(fish.position, followLerp);
-
+    const displacement = new THREE.Vector3().subVectors(fish.position, startPos);
+    
+    camera.position.add(displacement);
+    
+    controls.target.copy(fish.position);
 }
 
 function handleKey(event, isDown) {

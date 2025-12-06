@@ -27,6 +27,11 @@ module.exports = {
                 test: /\.(stl|obj|mtl|gltf|glb)$/i,
                 type: 'asset/resource',
                 generator: { filename: 'models/[name][ext]', },
+            },
+            {
+                test: /\.(mp3|wav|ogg|m4a)$/i,
+                type: 'asset/resource',
+                generator: { filename: 'sounds/[name][ext]', },
             }
         ],
     },
