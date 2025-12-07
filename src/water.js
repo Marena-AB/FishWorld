@@ -7,6 +7,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { generateTerrain } from './sand-generation.js';
 import { Fish } from './fish.js';
+import { initPhysics, getPhysicsWorld, isRapierLoaded, createTerrainCollider, createSceneColliders, createFishPhysics, updatePhysics, syncPhysicsToThreeJS } from './physics.js';
 
 // Import fish models (webpack will bundle these)
 import alienFishUrl from './assets/alien_fish_animated.glb';
@@ -196,6 +197,7 @@ function initLights() {
     cameraLight.position.copy(camera.position);
     scene.add(cameraLight);
 }
+
 
 function buildSandDunes() {
     const roughness = 0.35;
@@ -784,6 +786,7 @@ function loadStaticFish() {
                 waterSurfaceY: WATER_SURFACE_Y,
                 canJump: fishType.canJump !== undefined ? fishType.canJump : Math.random() < 0.3,
                 radius: 2.5,
+                physicsWorld: getPhysicsWorld(),
                 materialModifier: (mat) => {
                     mat.roughness = 0.45;
                     mat.metalness = 0.08;
@@ -900,6 +903,7 @@ function loadLargeCreatures() {
         minTravelTime: 10.0,
         worldBounds: worldBounds,
         waterSurfaceY: WATER_SURFACE_Y,
+        physicsWorld: getPhysicsWorld(),
         canJump: false,  // CHANGED: Whales shouldn't jump, prevents getting stuck
         radius: 6,  // REDUCED back to 6 - large radius was causing too many collisions
         materialModifier: (mat) => {
@@ -927,6 +931,7 @@ function loadLargeCreatures() {
         minTravelTime: 9.0,
         worldBounds: worldBounds,
         waterSurfaceY: WATER_SURFACE_Y,
+        physicsWorld: getPhysicsWorld(),
         canJump: false,  // CHANGED: Orcas shouldn't jump in this implementation, prevents getting stuck
         radius: 5,  // REDUCED back to 5 - large radius was causing too many collisions
         materialModifier: (mat) => {
@@ -954,6 +959,7 @@ function loadLargeCreatures() {
         minTravelTime: 15.0,
         worldBounds: worldBounds,
         waterSurfaceY: WATER_SURFACE_Y,
+        physicsWorld: getPhysicsWorld(),
         canJump: false,  // CHANGED: Sperm whales shouldn't jump, prevents getting stuck
         radius: 5,  // REDUCED back to 5 - large radius was causing too many collisions
         materialModifier: (mat) => {
@@ -1025,6 +1031,49 @@ function resolvePlayerCollisions(colliders) {
         if (vn < 0) {
             fishVelocity.addScaledVector(n, -vn); // remove into-other component to slide
         }
+    });
+}
+
+async function loadFishPlayerWithPhysics() {
+    return new Promise((resolve) => {
+        loader.load(
+            new URL('./assets/fish.glb', import.meta.url).href,
+            (gltf) => {
+                fish = gltf.scene;
+                fish.position.set(0, 5, 0);
+                fish.scale.setScalar(1);
+                fish.traverse((obj) => {
+                    if (obj.isMesh) {
+                        obj.castShadow = true;
+                        obj.receiveShadow = true;
+                    }
+                });
+                scene.add(fish);
+                fish.rotation.y = Math.PI;
+                controls.target.copy(fish.position);
+                followOffset.copy(INITIAL_CAMERA_OFFSET);
+                camera.position.copy(fish.position).add(followOffset);
+                controls.update();
+
+                if (gltf.animations && gltf.animations.length > 0) {
+                    mixer = new THREE.AnimationMixer(fish);
+                    gltf.animations.forEach((clip) => mixer.clipAction(clip).play());
+                }
+                
+                // Add physics to player fish
+                if (isRapierLoaded()) {
+                    createFishPhysics({ model: fish, position: fish.position }, PLAYER_RADIUS, 1.5);
+                }
+                
+                controlledFish = fish;
+                resolve(fish);
+            },
+            undefined,
+            (error) => {
+                console.error('Failed to load fish model', error);
+                resolve(null);
+            },
+        );
     });
 }
 
@@ -1159,21 +1208,39 @@ function initAudio() {
     }
 }
 
-initControls();
-initLights();
-buildSandDunes();
-addRocksAndPlants();
-addWaterSurface();
-initPostProcessing();
-addCausticsLight();
-buildHud();
-addAmbientModels();
-loadFishPlayer();
-loadStaticFish();
-loadGlowingFish();
-loadSchoolFish();
-loadLargeCreatures();
-initAudio();
+async function initScene() {
+    // Initialize physics first
+    await initPhysics();
+    
+    // Then initialize your scene components
+    initControls();
+    initLights();
+    buildSandDunes();
+    addRocksAndPlants();
+    
+    // Create terrain collider after dunes are built
+    if (isRapierLoaded()) {
+        createTerrainCollider(dunes);
+        createSceneColliders(rocks, kelp);
+    }
+    
+    addWaterSurface();
+    initPostProcessing();
+    addCausticsLight();
+    buildHud();
+    addAmbientModels();
+    
+    await loadFishPlayer();
+    loadStaticFish();
+    loadGlowingFish();
+    loadSchoolFish();
+    loadLargeCreatures();
+    
+    initAudio();
+    
+    // Start animation loop
+    animate();
+}
 
 const cycleStart = performance.now();
 
@@ -1285,9 +1352,24 @@ function updateControlledFish(delta) {
         
         if (horizontalSpeed > 0.1) {
             const pitchRatio = verticalVelocity / (horizontalSpeed + Math.abs(verticalVelocity));
-            controlledFish.model.rotation.x = pitchRatio * maxPitchAngle;
+            controlledFish.model.rotation.x = -pitchRatio * maxPitchAngle;
         } else {
             controlledFish.model.rotation.x *= Math.pow(0.9, delta * 60);
+        }
+
+        if (controlledFish.rigidBody) {
+            const translation = controlledFish.rigidBody.translation();
+            translation.x = controlledFish.model.position.x;
+            translation.y = controlledFish.model.position.y;
+            translation.z = controlledFish.model.position.z;
+            controlledFish.rigidBody.setNextKinematicTranslation(translation);
+            
+            const rotation = controlledFish.rigidBody.rotation();
+            rotation.x = controlledFish.model.quaternion.x;
+            rotation.y = controlledFish.model.quaternion.y;
+            rotation.z = controlledFish.model.quaternion.z;
+            rotation.w = controlledFish.model.quaternion.w;
+            controlledFish.rigidBody.setNextKinematicRotation(rotation);
         }
 
         const displacement = new THREE.Vector3().subVectors(controlledFish.model.position, startPos);
@@ -1360,7 +1442,7 @@ function updateFish(delta) {
 
         if (horizontalSpeed > 0.1) {
             const pitchRatio = verticalVelocity / (horizontalSpeed + Math.abs(verticalVelocity));
-            fish.rotation.x = pitchRatio * maxPitchAngle;
+            fish.rotation.x = -pitchRatio * maxPitchAngle;
         } else {
             fish.rotation.x *= Math.pow(0.9, delta * 60);
         }
@@ -1401,7 +1483,10 @@ function animate() {
     const delta = clock.getDelta();
     updateDayNight(performance.now() - cycleStart);
     
-    // Update camera light position to follow camera
+    // Update physics
+    updatePhysics(delta);
+    
+    // Update camera light position
     if (cameraLight) {
         cameraLight.position.copy(camera.position);
     }
@@ -1450,10 +1535,8 @@ function animate() {
         largeFish.forEach((lf) => lf.update(delta));
     }
 
-    const colliders = gatherFishColliders();
-    if (colliders.length > 1) {
-        resolveAICollisions(colliders);
-    }
+    // Sync physics to Three.js (for kinematic objects)
+    syncPhysicsToThreeJS();
 
     if (controlledFish && controlledFish !== fish && controlledFish.mixer) {
         controlledFish.mixer.update(delta);
@@ -1476,7 +1559,6 @@ function animate() {
         renderer.render(scene, camera);
     }
 }
-animate();
 
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -1486,5 +1568,7 @@ function onWindowResize() {
         composer.setSize(window.innerWidth, window.innerHeight);
     }
 }
+
+initScene();
 
 window.addEventListener('resize', onWindowResize, false);
