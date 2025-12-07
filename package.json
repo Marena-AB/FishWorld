@@ -8,7 +8,7 @@
     "start": "webpack serve --mode development --open"
   },
   "dependencies": {
-    "@dimforge/rapier3d": "^0.19.3",
+    "@dimforge/rapier3d-compat": "^0.19.3",
     "three": "^0.158.0"
   },
   "devDependencies": {
