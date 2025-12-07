@@ -61,7 +61,7 @@ function createMenu() {
             </div>
             <div class="menu-footer">
                 <p>Use WASD to swim • Mouse to look • Space/Shift to ascend/descend</p>
-                <p style="margin-top: 8px; font-size: 0.85rem; opacity: 0.8;">Press F / Shift+F in-game to switch fish</p>
+                <p style="margin-top: 8px; font-size: 0.85rem; opacity: 0.8;">Press Escape in-game to return to menu and change fish</p>
             </div>
         </div>
     `;
@@ -141,11 +141,6 @@ async function startGame() {
         
         gameModule = await import('./water.js');
         gameLoaded = true;
-        
-        menuContainer.remove();
-        if (backgroundContainer) {
-            backgroundContainer.remove();
-        }
         
     } catch (error) {
         console.error('Failed to load game:', error);

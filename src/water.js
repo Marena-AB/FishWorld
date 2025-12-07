@@ -188,8 +188,8 @@ const PLAYER_FISH_MODELS = [
     { 
         name: 'Koi Fish', 
         url: KOI_FISH_URL, 
-        scale: 5.5, 
-        rotationOffsetY: -Math.PI,
+        scale: 1.5, 
+        rotationOffsetY: -Math.PI / 2,
         rotationOffsetX: 0,
         rotationOffsetZ: 0
     },
@@ -712,7 +712,7 @@ function buildHud() {
     hud.innerHTML = `
         <h1>Swim Controls</h1>
         <div class="controls">WASD: swim · Mouse: look · Space/Shift: ascend/descend</div>
-        <div class="controls" style="margin-top: 8px; font-size: 12px; opacity: 0.8;">F: Next Fish · Shift+F: Previous Fish</div>
+        <div class="controls" style="margin-top: 8px; font-size: 12px; opacity: 0.8;">Press Escape to return to menu</div>
         <div class="cycle-bar"><div class="fill"></div></div>
         <div class="pill"><span class="indicator"></span><span class="label">Day</span></div>
         <div class="pill" style="margin-top: 6px;"><span style="opacity: 0.7;">Fish:</span><span class="fish-model-label" style="margin-left: 6px;">Default Fish</span></div>
@@ -1640,7 +1640,8 @@ function updateFish(delta) {
         tmpHeading.copy(fishVelocity);
         tmpHeading.y = 0;
         if (tmpHeading.lengthSq() > 1e-4) {
-            fish.rotation.y = Math.atan2(tmpHeading.x, tmpHeading.z);
+            const fishModel = PLAYER_FISH_MODELS[currentFishModelIndex];
+            fish.rotation.y = Math.atan2(tmpHeading.x, tmpHeading.z) + fishModel.rotationOffsetY;
             playerHeading.copy(tmpHeading).normalize();
         }
 
@@ -1663,6 +1664,10 @@ function updateFish(delta) {
     controls.target.copy(fish.position);
 }
 
+function returnToMenu() {
+    window.location.reload();
+}
+
 function handleKey(event, isDown) {
     if (isDown && event.code === 'Tab') {
         event.preventDefault();
@@ -1670,13 +1675,9 @@ function handleKey(event, isDown) {
         return;
     }
     
-    if (isDown && event.code === 'KeyF') {
+    if (isDown && event.code === 'Escape') {
         event.preventDefault();
-        if (event.shiftKey) {
-            switchPlayerFishModel(-1); // Previous
-        } else {
-            switchPlayerFishModel(1); // Next
-        }
+        returnToMenu();
         return;
     }
     
@@ -1688,9 +1689,7 @@ function handleKey(event, isDown) {
     case 'Space': moveState.up = isDown; break;
     case 'ShiftLeft':
     case 'ShiftRight':
-        if (!event.getModifierState('KeyF')) {
-            moveState.down = isDown;
-        }
+        moveState.down = isDown;
         break;
     default: break;
     }
