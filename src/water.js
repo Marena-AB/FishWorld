@@ -7,15 +7,13 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { generateTerrain } from './sand-generation.js';
 import { Fish } from './fish.js';
-import { initPhysics, getPhysicsWorld, isRapierLoaded, createTerrainCollider, createSceneColliders, createFishPhysics, updatePhysics, syncPhysicsToThreeJS } from './physics.js';
+import { initPhysics, getPhysicsWorld, isRapierLoaded, createTerrainCollider, createSceneColliders, createFishPhysics, updatePhysics, syncPhysicsToThreeJS, getPhysicsObjects } from './physics.js';
 
 // Import fish models (webpack will bundle these)
 import alienFishUrl from './assets/alien_fish_animated.glb';
-import arcticPeeperUrl from './assets/arctic_peeper.glb';
 import blueWhaleUrl from './assets/blue_whale.glb';
 import discusFishUrl from './assets/discus_fish.glb';
 import femaleOrcaUrl from './assets/female_orca.glb';
-import spermWhaleUrl from './assets/sperm_whale.glb';
 import stylizedFishUrl from './assets/stylized_fish.glb';
 
 // Core scene/terrain settings
@@ -146,7 +144,6 @@ const ORCA_URL = new URL('./assets/female_orca.glb', import.meta.url).href;
 const SPERM_WHALE_URL = new URL('./assets/sperm_whale.glb', import.meta.url).href;
 const STYLIZED_FISH_URL = new URL('./assets/stylized_fish.glb', import.meta.url).href;
 const DISCUS_FISH_URL = new URL('./assets/discus_fish.glb', import.meta.url).href;
-const PEEPER_URL = new URL('./assets/arctic_peeper.glb', import.meta.url).href;
 const ALIEN_FISH_URL = new URL('./assets/alien_fish_animated.glb', import.meta.url).href;
 // These GLTFs reference external .bin/textures; load from the copied assets folder to keep paths intact
 const KOI_FISH_URL = 'assets/fish_models/koi_fish/scene.gltf';
@@ -154,6 +151,76 @@ const TUNA_FISH_URL = 'assets/fish_models/tuna_fish/scene.gltf';
 const SCHOOL_FISH_URL = 'assets/fish_models/school_of_fish/scene.gltf';
 const STAR_FISH_URL = 'assets/fish_models/star_fish/scene.gltf';
 const ANIMATED_FISH_URL = 'assets/fish_models/fish_animated/scene.gltf';
+
+const PLAYER_FISH_MODELS = [
+    { 
+        name: 'Default Fish', 
+        url: new URL('./assets/fish.glb', import.meta.url).href, 
+        scale: 1.0, 
+        rotationOffsetY: 0,
+        rotationOffsetX: 0,
+        rotationOffsetZ: 0
+    },
+    { 
+        name: 'Alien Fish', 
+        url: alienFishUrl, 
+        scale: 1.0, 
+        rotationOffsetY: 0,
+        rotationOffsetX: 0,
+        rotationOffsetZ: 0
+    },
+    { 
+        name: 'Discus Fish', 
+        url: discusFishUrl, 
+        scale: 100.95, 
+        rotationOffsetY: Math.PI / 2,
+        rotationOffsetX: 0,
+        rotationOffsetZ: 0
+    },
+    { 
+        name: 'Stylized Fish', 
+        url: stylizedFishUrl, 
+        scale: 2.5, 
+        rotationOffsetY: 0,
+        rotationOffsetX: 0,
+        rotationOffsetZ: 0
+    },
+    { 
+        name: 'Koi Fish', 
+        url: KOI_FISH_URL, 
+        scale: 5.5, 
+        rotationOffsetY: -Math.PI,
+        rotationOffsetX: 0,
+        rotationOffsetZ: 0
+    },
+    { 
+        name: 'Tuna Fish', 
+        url: TUNA_FISH_URL, 
+        scale: 4.25, 
+        rotationOffsetY: Math.PI / 2,
+        rotationOffsetX: 0,
+        rotationOffsetZ: 0
+    },
+    { 
+        name: 'Animated Fish', 
+        url: ANIMATED_FISH_URL, 
+        scale: 0.08, 
+        rotationOffsetY: 0,
+        rotationOffsetX: 0,
+        rotationOffsetZ: 0
+    },
+    { 
+        name: 'Sea Turtle', 
+        url: TURTLE_URL, 
+        scale: 10.5, 
+        rotationOffsetY: 0,
+        rotationOffsetX: 0,
+        rotationOffsetZ: 0
+    }
+];
+
+let currentFishModelIndex = 0; // Track current fish model
+let hudFishModelLabel = null; // HUD element for fish model name
 
 // Controls
 let controls;
@@ -368,7 +435,7 @@ function addAmbientModels() {
     // Stylized mid-water fish
     addSceneModel({
         href: STYLIZED_FISH_URL,
-        scale: 0.18,  // Reduced so ambient stylized fish aren't oversized
+        scale: 2.5,  // Reduced so ambient stylized fish aren't oversized
         count: 6,  // Reduced from 12
         area: 0.45,
         minY: 10,
@@ -380,25 +447,13 @@ function addAmbientModels() {
     // Discus fish school
     addSceneModel({
         href: DISCUS_FISH_URL,
-        scale: 0.15,  // Reduced to better match player size
+        scale: 101.0,  // Reduced to better match player size
         count: 6,  // Reduced from 14
         area: 0.4,
         minY: 9,
         maxY: 18,
         wander: true,
         wanderSpeed: 1.8
-    });
-
-    // Arctic peepers near surface
-    addSceneModel({
-        href: PEEPER_URL,
-        scale: 0.18,  // Reduced to better match player size
-        count: 6,  // Reduced from 14
-        area: 0.45,
-        minY: 16,
-        maxY: 24,
-        wander: true,
-        wanderSpeed: 1.7
     });
 
     // Alien fish with animations for night vibe
@@ -416,7 +471,7 @@ function addAmbientModels() {
     // Turtle drifting near the player space
     addSceneModel({
         href: TURTLE_URL,
-        scale: 0.5,
+        scale: 10.5,
         count: 1,  // Keep at 1
         area: 0.25,
         minY: 8,
@@ -657,21 +712,25 @@ function buildHud() {
     hud.innerHTML = `
         <h1>Swim Controls</h1>
         <div class="controls">WASD: swim · Mouse: look · Space/Shift: ascend/descend</div>
+        <div class="controls" style="margin-top: 8px; font-size: 12px; opacity: 0.8;">F: Next Fish · Shift+F: Previous Fish</div>
         <div class="cycle-bar"><div class="fill"></div></div>
         <div class="pill"><span class="indicator"></span><span class="label">Day</span></div>
+        <div class="pill" style="margin-top: 6px;"><span style="opacity: 0.7;">Fish:</span><span class="fish-model-label" style="margin-left: 6px;">Default Fish</span></div>
     `;
     hudCycleBar = hud.querySelector('.fill');
     hudTimeLabel = hud.querySelector('.label');
+    hudFishModelLabel = hud.querySelector('.fish-model-label');
     document.body.appendChild(hud);
 }
 
 function loadFishPlayer() {
+    const fishModel = PLAYER_FISH_MODELS[currentFishModelIndex];
     loader.load(
-        new URL('./assets/fish.glb', import.meta.url).href,
+        fishModel.url,
         (gltf) => {
             fish = gltf.scene;
             fish.position.set(0, 5, 0);
-            fish.scale.setScalar(1);
+            fish.scale.setScalar(fishModel.scale);
             fish.traverse((obj) => {
                 if (obj.isMesh) {
                     obj.castShadow = true;
@@ -679,7 +738,13 @@ function loadFishPlayer() {
                 }
             });
             scene.add(fish);
-            fish.rotation.y = Math.PI; // start facing away from the camera
+            fish.rotation.y = Math.PI + fishModel.rotationOffsetY;
+            if (fishModel.rotationOffsetX !== 0) {
+                fish.rotation.x = fishModel.rotationOffsetX;
+            }
+            if (fishModel.rotationOffsetZ !== 0) {
+                fish.rotation.z = fishModel.rotationOffsetZ;
+            }
             controls.target.copy(fish.position);
             followOffset.copy(INITIAL_CAMERA_OFFSET);
             camera.position.copy(fish.position).add(followOffset);
@@ -691,10 +756,142 @@ function loadFishPlayer() {
             }
             
             controlledFish = fish;
+            
+            if (hudFishModelLabel) {
+                hudFishModelLabel.textContent = fishModel.name;
+            }
         },
         undefined,
         (error) => console.error('Failed to load fish model', error),
     );
+}
+
+export function switchPlayerFishModel(direction = 1) {
+    if (!fish) return; // Can't switch if fish isn't loaded yet
+    
+    // Save current position and velocity
+    const currentPosition = fish.position.clone();
+    const currentRotation = fish.rotation.clone();
+    const currentVelocity = fishVelocity.clone();
+    const oldModelIndex = currentFishModelIndex;
+    
+    // Clean up old physics if it exists
+    if (fish.rigidBody && isRapierLoaded()) {
+        // Remove from physics objects array
+        const physicsObjects = getPhysicsObjects();
+        const index = physicsObjects.findIndex(obj => obj.mesh === fish);
+        if (index !== -1) {
+            physicsObjects.splice(index, 1);
+        }
+        // Remove rigid body from physics world
+        const physicsWorld = getPhysicsWorld();
+        if (physicsWorld && fish.rigidBody) {
+            physicsWorld.removeRigidBody(fish.rigidBody);
+        }
+        fish.rigidBody = null;
+        fish.collider = null;
+    }
+    
+    // Remove old fish from scene
+    scene.remove(fish);
+    if (mixer) {
+        mixer = null;
+    }
+    
+    // Update model index
+    if (direction !== 0) {
+        currentFishModelIndex = (currentFishModelIndex + direction + PLAYER_FISH_MODELS.length) % PLAYER_FISH_MODELS.length;
+    }
+    
+    // Load new fish model
+    const fishModel = PLAYER_FISH_MODELS[currentFishModelIndex];
+    const oldFishModel = PLAYER_FISH_MODELS[oldModelIndex];
+    
+    loader.load(
+        fishModel.url,
+        (gltf) => {
+            fish = gltf.scene;
+            fish.position.copy(currentPosition);
+            fish.scale.setScalar(fishModel.scale);
+            
+            // Adjust rotation based on model differences
+            fish.rotation.copy(currentRotation);
+            const rotationDiff = fishModel.rotationOffsetY - oldFishModel.rotationOffsetY;
+            fish.rotation.y = currentRotation.y + rotationDiff;
+            
+            if (fishModel.rotationOffsetX !== 0) {
+                fish.rotation.x = fishModel.rotationOffsetX;
+            }
+            if (fishModel.rotationOffsetZ !== 0) {
+                fish.rotation.z = fishModel.rotationOffsetZ;
+            }
+            
+            fish.traverse((obj) => {
+                if (obj.isMesh) {
+                    obj.castShadow = true;
+                    obj.receiveShadow = true;
+                }
+            });
+            scene.add(fish);
+            
+            // Restore velocity
+            fishVelocity.copy(currentVelocity);
+            
+            // Update animations
+            if (gltf.animations && gltf.animations.length > 0) {
+                mixer = new THREE.AnimationMixer(fish);
+                gltf.animations.forEach((clip) => mixer.clipAction(clip).play());
+            }
+            
+            // Recreate physics for new fish
+            if (isRapierLoaded()) {
+                createFishPhysics({ model: fish, position: fish.position }, PLAYER_RADIUS, 1.5);
+            }
+            
+            controlledFish = fish;
+            
+            // Update HUD
+            if (hudFishModelLabel) {
+                hudFishModelLabel.textContent = fishModel.name;
+            }
+            
+            console.log(`Switched to: ${fishModel.name}`);
+        },
+        undefined,
+        (error) => console.error('Failed to load fish model', error),
+    );
+}
+
+// Get current fish model info
+export function getCurrentFishModel() {
+    return PLAYER_FISH_MODELS[currentFishModelIndex];
+}
+
+// Get all available fish models
+export function getAvailableFishModels() {
+    return PLAYER_FISH_MODELS;
+}
+
+// Set fish model by index
+export function setFishModelByIndex(index) {
+    if (index < 0 || index >= PLAYER_FISH_MODELS.length) {
+        console.error('Invalid fish model index:', index);
+        return;
+    }
+    
+    if (index === currentFishModelIndex) return;
+    
+    // Use the switch function with direction 0 to use current index
+    const oldIndex = currentFishModelIndex;
+    currentFishModelIndex = index;
+    
+    if (!fish) {
+        // Fish not loaded yet, just set the index
+        return;
+    }
+    
+    // Call switchPlayerFishModel with direction 0 to use current index
+    switchPlayerFishModel(0);
 }
 
 function switchControl() {
@@ -748,12 +945,10 @@ function loadStaticFish() {
     // Define different fish types for daytime with more variety
     const fishTypes = [
         { path: alienFishUrl, file: '', scale: 1.0, rotationOffsetY: 0, count: 6 },  // Match player scale
-        { path: arcticPeeperUrl, file: '', scale: 0.25, rotationOffsetY: Math.PI, count: 5 },  // REDUCED from 0.95 - this was too big!
         { path: discusFishUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI / 2, count: 5 },
-        { path: stylizedFishUrl, file: '', scale: 1.0, rotationOffsetY: 0, count: 4 },
-        { path: arcticPeeperUrl, file: '', scale: 0.25, rotationOffsetY: Math.PI, count: 8 },  // REDUCED from 0.95 - this was too big!
+        { path: stylizedFishUrl, file: '', scale: 2.0, rotationOffsetY: 0, count: 4 },
         { path: discusFishUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI / 2, count: 8 },
-        { path: stylizedFishUrl, file: '', scale: 1.0, rotationOffsetY: 0, count: 7 },
+        { path: stylizedFishUrl, file: '', scale: 2.0, rotationOffsetY: 0, count: 7 },
         // Additional creatures from fish_models
         // Models from fish_models/ come in very large world units; scale them down
         { path: KOI_FISH_URL, file: '', scale: 0.35, rotationOffsetY: 0, count: 5, yRange: { min: 6, max: 18 } },
@@ -826,8 +1021,6 @@ function loadGlowingFish() {
         // Bright glowing fish (high intensity)
         { path: alienFishUrl, file: '', scale: 1.0, rotationOffsetY: 0, 
             count: 7, intensity: 2.4, pulseSpeed: 2.2 },
-        { path: arcticPeeperUrl, file: '', scale: 0.25, rotationOffsetY: Math.PI, 
-            count: 8, intensity: 2.1, pulseSpeed: 2.5 },  // REDUCED from 0.9
         { path: discusFishUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI / 2, 
             count: 8, intensity: 1.9, pulseSpeed: 2.0 },
         { path: stylizedFishUrl, file: '', scale: 1.0, rotationOffsetY: 0, 
@@ -835,8 +1028,6 @@ function loadGlowingFish() {
         // Medium glowing fish (moderate intensity)
         { path: alienFishUrl, file: '', scale: 0.95, rotationOffsetY: Math.PI / 4, 
             count: 5, intensity: 1.6, pulseSpeed: 3.0 },
-        { path: arcticPeeperUrl, file: '', scale: 0.25, rotationOffsetY: -Math.PI / 2, 
-            count: 6, intensity: 1.4, pulseSpeed: 2.8 },  // REDUCED from 0.9
     ];
     
     let colorIndex = 0;
@@ -1036,12 +1227,13 @@ function resolvePlayerCollisions(colliders) {
 
 async function loadFishPlayerWithPhysics() {
     return new Promise((resolve) => {
+        const fishModel = PLAYER_FISH_MODELS[currentFishModelIndex];
         loader.load(
-            new URL('./assets/fish.glb', import.meta.url).href,
+            fishModel.url,
             (gltf) => {
                 fish = gltf.scene;
                 fish.position.set(0, 5, 0);
-                fish.scale.setScalar(1);
+                fish.scale.setScalar(fishModel.scale);
                 fish.traverse((obj) => {
                     if (obj.isMesh) {
                         obj.castShadow = true;
@@ -1049,7 +1241,13 @@ async function loadFishPlayerWithPhysics() {
                     }
                 });
                 scene.add(fish);
-                fish.rotation.y = Math.PI;
+                fish.rotation.y = Math.PI + fishModel.rotationOffsetY;
+                if (fishModel.rotationOffsetX !== 0) {
+                    fish.rotation.x = fishModel.rotationOffsetX;
+                }
+                if (fishModel.rotationOffsetZ !== 0) {
+                    fish.rotation.z = fishModel.rotationOffsetZ;
+                }
                 controls.target.copy(fish.position);
                 followOffset.copy(INITIAL_CAMERA_OFFSET);
                 camera.position.copy(fish.position).add(followOffset);
@@ -1066,6 +1264,11 @@ async function loadFishPlayerWithPhysics() {
                 }
                 
                 controlledFish = fish;
+                
+                if (hudFishModelLabel) {
+                    hudFishModelLabel.textContent = fishModel.name;
+                }
+                
                 resolve(fish);
             },
             undefined,
@@ -1209,6 +1412,11 @@ function initAudio() {
 }
 
 async function initScene() {
+    const savedFishIndex = parseInt(localStorage.getItem('selectedFishIndex') || '0', 10);
+    if (savedFishIndex >= 0 && savedFishIndex < PLAYER_FISH_MODELS.length) {
+        currentFishModelIndex = savedFishIndex;
+    }
+    
     // Initialize physics first
     await initPhysics();
     
@@ -1462,6 +1670,16 @@ function handleKey(event, isDown) {
         return;
     }
     
+    if (isDown && event.code === 'KeyF') {
+        event.preventDefault();
+        if (event.shiftKey) {
+            switchPlayerFishModel(-1); // Previous
+        } else {
+            switchPlayerFishModel(1); // Next
+        }
+        return;
+    }
+    
     switch (event.code) {
     case 'KeyW': moveState.forward = isDown; break;
     case 'KeyS': moveState.back = isDown; break;
@@ -1470,7 +1688,10 @@ function handleKey(event, isDown) {
     case 'Space': moveState.up = isDown; break;
     case 'ShiftLeft':
     case 'ShiftRight':
-        moveState.down = isDown; break;
+        if (!event.getModifierState('KeyF')) {
+            moveState.down = isDown;
+        }
+        break;
     default: break;
     }
 }

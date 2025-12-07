@@ -5,6 +5,17 @@ let gameLoaded = false;
 let gameModule = null;
 let backgroundScene = null;
 
+const FISH_MODELS = [
+    { name: 'Default Fish', emoji: '🐠' },
+    { name: 'Alien Fish', emoji: '👽' },
+    { name: 'Discus Fish', emoji: '🐡' },
+    { name: 'Stylized Fish', emoji: '🐠' },
+    { name: 'Koi Fish', emoji: '🐟' },
+    { name: 'Tuna Fish', emoji: '🐟' },
+    { name: 'Animated Fish', emoji: '🐠' },
+    { name: 'Sea Turtle', emoji: '🐢' }
+];
+
 function createMenu() {
     const menuContainer = document.createElement('div');
     menuContainer.id = 'menu-container';
@@ -27,6 +38,17 @@ function createMenu() {
                 <h1 class="title-main">FishWorld</h1>
                 <p class="title-subtitle">Dive into the depths</p>
             </div>
+            <div class="menu-section">
+                <label class="menu-label">Select Your Fish:</label>
+                <div class="fish-selector">
+                    <button id="fish-prev-btn" class="fish-nav-btn" title="Previous Fish">◀</button>
+                    <div class="fish-display">
+                        <span id="fish-emoji" class="fish-emoji">🐠</span>
+                        <span id="fish-name" class="fish-name">Default Fish</span>
+                    </div>
+                    <button id="fish-next-btn" class="fish-nav-btn" title="Next Fish">▶</button>
+                </div>
+            </div>
             <div class="menu-buttons">
                 <button id="start-btn" class="menu-btn menu-btn-primary">
                     <span class="btn-text">Start Game</span>
@@ -39,17 +61,44 @@ function createMenu() {
             </div>
             <div class="menu-footer">
                 <p>Use WASD to swim • Mouse to look • Space/Shift to ascend/descend</p>
+                <p style="margin-top: 8px; font-size: 0.85rem; opacity: 0.8;">Press F / Shift+F in-game to switch fish</p>
             </div>
         </div>
     `;
     
     document.body.appendChild(menuContainer);
     
+    let selectedFishIndex = parseInt(localStorage.getItem('selectedFishIndex') || '0', 10);
+    if (selectedFishIndex < 0 || selectedFishIndex >= FISH_MODELS.length) {
+        selectedFishIndex = 0;
+    }
+    updateFishDisplay(selectedFishIndex);
+    
     const startBtn = document.getElementById('start-btn');
     const quitBtn = document.getElementById('quit-btn');
+    const fishPrevBtn = document.getElementById('fish-prev-btn');
+    const fishNextBtn = document.getElementById('fish-next-btn');
     
     startBtn.addEventListener('click', startGame);
     quitBtn.addEventListener('click', quitGame);
+    
+    fishPrevBtn.addEventListener('click', () => {
+        selectedFishIndex = (selectedFishIndex - 1 + FISH_MODELS.length) % FISH_MODELS.length;
+        updateFishDisplay(selectedFishIndex);
+        localStorage.setItem('selectedFishIndex', selectedFishIndex.toString());
+    });
+    
+    fishNextBtn.addEventListener('click', () => {
+        selectedFishIndex = (selectedFishIndex + 1) % FISH_MODELS.length;
+        updateFishDisplay(selectedFishIndex);
+        localStorage.setItem('selectedFishIndex', selectedFishIndex.toString());
+    });
+    
+    function updateFishDisplay(index) {
+        const fishModel = FISH_MODELS[index];
+        document.getElementById('fish-emoji').textContent = fishModel.emoji;
+        document.getElementById('fish-name').textContent = fishModel.name;
+    }
     
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !gameLoaded) {
