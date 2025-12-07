@@ -91,29 +91,36 @@ export function createSceneColliders(rocks, kelp) {
     
     // Rock colliders
     rocks.forEach((rock) => {
-        const radius = rock.scale.x * 1.5; // Approximate radius
+        const radius = rock.scale.x * 1.5;
+
+        const rigidBodyDesc = RAPIER.RigidBodyDesc.fixed()
+            .setTranslation(rock.position.x, rock.position.y, rock.position.z);
+        const rigidBody = physicsWorld.createRigidBody(rigidBodyDesc);
+        
         const rockDesc = RAPIER.ColliderDesc.ball(radius)
-            .setTranslation(rock.position.x, rock.position.y, rock.position.z)
             .setRestitution(0.3)
             .setFriction(0.8);
         
-        const collider = physicsWorld.createCollider(rockDesc);
-        physicsObjects.push({ mesh: rock, collider: collider, isStatic: true });
+        const collider = physicsWorld.createCollider(rockDesc, rigidBody);
+        physicsObjects.push({ mesh: rock, collider: collider, rigidBody: rigidBody, isStatic: true });
     });
     
-    // Kelp colliders (cylinder approximation)
+    // Kelp colliders
     kelp.forEach((k) => {
         const height = k.geometry.parameters.height;
         const radius = k.geometry.parameters.radiusTop;
         
-        const kelpDesc = RAPIER.ColliderDesc.cylinder(height / 2, radius)
+        const rigidBodyDesc = RAPIER.RigidBodyDesc.fixed()
             .setTranslation(k.position.x, k.position.y, k.position.z)
-            .setRotation(k.quaternion)
+            .setRotation(k.quaternion);
+        const rigidBody = physicsWorld.createRigidBody(rigidBodyDesc);
+        
+        const kelpDesc = RAPIER.ColliderDesc.cylinder(height / 2, radius)
             .setRestitution(0.1)
             .setFriction(0.5);
         
-        const collider = physicsWorld.createCollider(kelpDesc);
-        physicsObjects.push({ mesh: k, collider: collider, isStatic: true });
+        const collider = physicsWorld.createCollider(kelpDesc, rigidBody);
+        physicsObjects.push({ mesh: k, collider: collider, rigidBody: rigidBody, isStatic: true });
     });
     
     console.log(`Created ${rocks.length + kelp.length} static scene colliders`);

@@ -335,6 +335,13 @@ function addRocksAndPlants() {
         rock.castShadow = true;
         rock.receiveShadow = true;
         snapToTerrain(rock, -0.2);
+        
+        rock.updateMatrixWorld();
+        const box = new THREE.Box3().setFromObject(rock);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        rock.collisionRadius = Math.max(size.x, size.y, size.z) * 0.5;
+        
         rocks.push(rock);
         scene.add(rock);
     }
@@ -353,6 +360,17 @@ function addRocksAndPlants() {
         kelpMesh.castShadow = true;
         kelpMesh.receiveShadow = true;
         snapToTerrain(kelpMesh, kelpHeight * 0.02);
+        
+        kelpMesh.baseRotationY = kelpMesh.rotation.y;
+        kelpMesh.angularVelocityX = 0;
+        kelpMesh.angularVelocityZ = 0;
+        kelpMesh.targetAngularVelocityX = 0;
+        kelpMesh.targetAngularVelocityZ = 0;
+        kelpMesh.damping = 0.9;
+        
+        kelpMesh.collisionRadius = Math.max(kelpMesh.geometry.parameters.radiusTop, kelpMesh.geometry.parameters.radiusBottom) * 1.8;
+        kelpMesh.collisionHeight = kelpHeight;
+        
         kelp.push(kelpMesh);
         scene.add(kelpMesh);
     }
@@ -1225,6 +1243,76 @@ function resolvePlayerCollisions(colliders) {
     });
 }
 
+function resolvePlayerSceneCollisions() {
+    if (!fish) { return; }
+    
+    rocks.forEach((rock) => {
+        const rockRadius = rock.collisionRadius || rock.scale.x * 1.5;
+        
+        tmpCollide.subVectors(fish.position, rock.position);
+        const minDist = PLAYER_RADIUS + rockRadius;
+        const distSq = tmpCollide.lengthSq();
+        if (distSq === 0 || distSq >= minDist * minDist) { return; }
+        const dist = Math.sqrt(distSq);
+        const n = tmpCollide.multiplyScalar(1 / dist);
+        const penetration = minDist - dist;
+        fish.position.addScaledVector(n, penetration);
+
+        const vn = fishVelocity.dot(n);
+        if (vn < 0) {
+            fishVelocity.addScaledVector(n, -vn);
+        }
+    });
+    
+    kelp.forEach((k) => {
+        const kelpRadius = k.collisionRadius || Math.max(k.geometry.parameters.radiusTop, k.geometry.parameters.radiusBottom) * 1.8;
+        const kelpHeight = k.collisionHeight || k.geometry.parameters.height;
+        
+        tmpCollide.subVectors(fish.position, k.position);
+        const horizontalDistSq = tmpCollide.x * tmpCollide.x + tmpCollide.z * tmpCollide.z;
+        const horizontalDist = Math.sqrt(horizontalDistSq);
+        
+        const kelpTop = k.position.y + kelpHeight * 0.5;
+        const kelpBottom = k.position.y - kelpHeight * 0.5;
+        const withinHeight = fish.position.y >= kelpBottom && fish.position.y <= kelpTop;
+        
+        const minDist = PLAYER_RADIUS + kelpRadius * 0.5;
+        if (!withinHeight || horizontalDistSq === 0 || horizontalDist >= minDist) { return; }
+        
+        const n = new THREE.Vector3(tmpCollide.x / horizontalDist, 0, tmpCollide.z / horizontalDist);
+        const penetration = minDist - horizontalDist;
+        
+        const pushBackStrength = 0.15;
+        fish.position.addScaledVector(n, penetration * pushBackStrength);
+
+        const vn = fishVelocity.x * n.x + fishVelocity.z * n.z;
+        if (vn < 0) {
+            const resistanceStrength = 0.4;
+            const penetrationFactor = Math.min(1.0, penetration / (PLAYER_RADIUS * 0.5));
+            const resistanceForce = resistanceStrength * penetrationFactor;
+            
+            fishVelocity.x -= n.x * vn * resistanceForce;
+            fishVelocity.z -= n.z * vn * resistanceForce;
+        }
+        
+        const collisionForce = Math.abs(vn) * 0.12;
+        if (collisionForce > 0.01) {
+            const perpendicular = new THREE.Vector3(-n.z, 0, n.x).normalize();
+            
+            const targetVelX = perpendicular.x * collisionForce;
+            const targetVelZ = perpendicular.z * collisionForce;
+            
+            const smoothFactor = 0.3;
+            k.targetAngularVelocityX += (targetVelX - k.targetAngularVelocityX) * smoothFactor;
+            k.targetAngularVelocityZ += (targetVelZ - k.targetAngularVelocityZ) * smoothFactor;
+            
+            const maxAngularVelocity = 1.2;
+            k.targetAngularVelocityX = Math.max(-maxAngularVelocity, Math.min(maxAngularVelocity, k.targetAngularVelocityX));
+            k.targetAngularVelocityZ = Math.max(-maxAngularVelocity, Math.min(maxAngularVelocity, k.targetAngularVelocityZ));
+        }
+    });
+}
+
 async function loadFishPlayerWithPhysics() {
     return new Promise((resolve) => {
         const fishModel = PLAYER_FISH_MODELS[currentFishModelIndex];
@@ -1628,6 +1716,7 @@ function updateFish(delta) {
     }
 
     resolvePlayerCollisions(gatherFishColliders());
+    resolvePlayerSceneCollisions();
 
     const clampedX = THREE.MathUtils.clamp(fish.position.x, -PLAYER_BOUNDS, PLAYER_BOUNDS);
     const clampedY = THREE.MathUtils.clamp(fish.position.y, PLAYER_MIN_Y, PLAYER_MAX_Y);
@@ -1736,8 +1825,26 @@ function animate() {
     if (kelp.length > 0) {
         const t = performance.now() * 0.001;
         kelp.forEach((k, idx) => {
-            k.rotation.z = Math.sin(t * 0.8 + idx) * 0.08;
-            k.rotation.x = Math.sin(t * 0.6 + idx * 1.2) * 0.05;
+            const baseSwayZ = Math.sin(t * 0.8 + idx) * 0.08;
+            const baseSwayX = Math.sin(t * 0.6 + idx * 1.2) * 0.05;
+            
+            const smoothFactor = 0.15;
+            k.angularVelocityX += (k.targetAngularVelocityX - k.angularVelocityX) * smoothFactor;
+            k.angularVelocityZ += (k.targetAngularVelocityZ - k.angularVelocityZ) * smoothFactor;
+            
+            const dampingFactor = Math.pow(k.damping, delta * 60);
+            k.targetAngularVelocityX *= dampingFactor;
+            k.targetAngularVelocityZ *= dampingFactor;
+            
+            if (Math.abs(k.angularVelocityX) < 0.005) k.angularVelocityX = 0;
+            if (Math.abs(k.angularVelocityZ) < 0.005) k.angularVelocityZ = 0;
+            if (Math.abs(k.targetAngularVelocityX) < 0.005) k.targetAngularVelocityX = 0;
+            if (Math.abs(k.targetAngularVelocityZ) < 0.005) k.targetAngularVelocityZ = 0;
+            
+            k.rotation.z = baseSwayZ + k.angularVelocityZ;
+            k.rotation.x = baseSwayX + k.angularVelocityX;
+            
+            k.rotation.y = k.baseRotationY;
         });
     }
 
