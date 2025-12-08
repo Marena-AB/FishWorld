@@ -175,7 +175,7 @@ const PLAYER_FISH_MODELS = [
         name: 'Discus Fish', 
         url: discusFishUrl, 
         scale: 10.95, 
-        rotationOffsetY: Math.PI / 2,
+        rotationOffsetY: -Math.PI / 2,
         rotationOffsetX: 0,
         rotationOffsetZ: 0
     },
@@ -199,7 +199,7 @@ const PLAYER_FISH_MODELS = [
         name: 'Tuna Fish', 
         url: TUNA_FISH_URL, 
         scale: 4.25, 
-        rotationOffsetY: Math.PI / 2,
+        rotationOffsetY: 0,
         rotationOffsetX: 0,
         rotationOffsetZ: 0
     },
