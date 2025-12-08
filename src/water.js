@@ -36,10 +36,10 @@ const SAND_COLOR = 0xd6c196;
 const ROCK_COUNT = 15;  // Reduced from 30
 const KELP_COUNT = 9;   // Reduced from 18
 const PLAYER_BOUNDS = PLANE_SIZE * 0.48; // keep player over terrain
+const WATER_SURFACE_Y = 150;
 const PLAYER_MIN_Y = 3;
-const PLAYER_MAX_Y = 45;
+const PLAYER_MAX_Y = WATER_SURFACE_Y - 3;
 const PLAYER_RADIUS = 2.2;
-const WATER_SURFACE_Y = 50;      // Y position of water surface
 
 // Day/night cycle settings
 const cycleDurationMs = 60000; 
@@ -147,6 +147,7 @@ const SPERM_WHALE_URL = new URL('./assets/sperm_whale.glb', import.meta.url).hre
 const STYLIZED_FISH_URL = new URL('./assets/stylized_fish.glb', import.meta.url).href;
 const DISCUS_FISH_URL = new URL('./assets/discus_fish.glb', import.meta.url).href;
 const ALIEN_FISH_URL = new URL('./assets/alien_fish_animated.glb', import.meta.url).href;
+const TITANIC_URL = new URL('./assets/titanic.glb', import.meta.url).href;
 const KOI_FISH_URL = 'assets/fish_models/koi_fish/scene.gltf';
 const TUNA_FISH_URL = 'assets/fish_models/tuna_fish/scene.gltf';
 const SCHOOL_FISH_URL = 'assets/fish_models/school_of_fish/scene.gltf';
@@ -542,6 +543,52 @@ function addAmbientModels() {
         wander: true,
         wanderSpeed: 0.55
     });
+}
+
+function addTitanic() {
+    loader.load(
+        TITANIC_URL,
+        (gltf) => {
+            const titanic = gltf.scene;
+            
+            titanic.traverse((obj) => {
+                if (obj.isMesh) {
+                    obj.castShadow = true;
+                    obj.receiveShadow = true;
+                    if (obj.material) {
+                        const clonedMaterial = obj.material.clone();
+                        if (obj.material.map) clonedMaterial.map = obj.material.map;
+                        if (obj.material.normalMap) clonedMaterial.normalMap = obj.material.normalMap;
+                        if (obj.material.roughnessMap) clonedMaterial.roughnessMap = obj.material.roughnessMap;
+                        if (obj.material.metalnessMap) clonedMaterial.metalnessMap = obj.material.metalnessMap;
+                        if (obj.material.aoMap) clonedMaterial.aoMap = obj.material.aoMap;
+                        if (obj.material.emissiveMap) clonedMaterial.emissiveMap = obj.material.emissiveMap;
+                        if (obj.material.alphaMap) clonedMaterial.alphaMap = obj.material.alphaMap;
+                        clonedMaterial.needsUpdate = true;
+                        obj.material = clonedMaterial;
+                    }
+                }
+            });
+            
+            titanic.position.set(0, WATER_SURFACE_Y + 0.5, -100);
+            titanic.scale.setScalar(1.0);
+            titanic.rotation.y = Math.PI / 2;
+            
+            scene.add(titanic);
+            ambientActors.push(titanic);
+            
+            // Handle animations if the model has any
+            if (gltf.animations && gltf.animations.length > 0) {
+                const mixer = new THREE.AnimationMixer(titanic);
+                gltf.animations.forEach((clip) => mixer.clipAction(clip).play());
+                ambientMixers.push(mixer);
+            }
+            
+            console.log('Titanic model loaded and positioned on water surface');
+        },
+        undefined,
+        (err) => console.error('Failed to load Titanic model', err)
+    );
 }
 
 function updateAmbientDrifters(delta) {
@@ -1552,6 +1599,7 @@ async function initScene() {
     addCausticsLight();
     buildHud();
     addAmbientModels();
+    addTitanic();
     
     await loadFishPlayer();
     loadStaticFish();
