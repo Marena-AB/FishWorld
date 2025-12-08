@@ -369,7 +369,7 @@ export class Fish {
                 translation.x = newPosition.x;
                 translation.y = newPosition.y;
                 translation.z = newPosition.z;
-                this.rigidBody.setTranslation(translation, true);
+                this.rigidBody.setTranslation(translation, true);w
             }
         }
 

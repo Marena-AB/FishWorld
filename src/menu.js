@@ -16,6 +16,7 @@ import discusFishUrl from './assets/discus_fish.glb';
 import stylizedFishUrl from './assets/stylized_fish.glb';
 
 let gameLoaded = false;
+let gameModule = null;
 let backgroundScene = null;
 
 const TURTLE_URL = './assets/turtle.glb';

@@ -181,6 +181,15 @@ const CORAL_REEF_SCATTER_AREA = 0.65;
 const CORAL_REEF_SCALE_MIN = 0.8;
 const CORAL_REEF_SCALE_RANGE = 1.2; // max = min + range
 const CORAL_REEF_TERRAIN_BUFFER = 0.2;
+const KELP_SWAY_FREQ_Z = 0.8;
+const KELP_SWAY_FREQ_X = 0.6;
+const KELP_SWAY_AMP_Z = 0.08;
+const KELP_SWAY_AMP_X = 0.05;
+const KELP_VELOCITY_EPS = 0.005;
+const KELP_MAX_ANGULAR = 1.2;
+const CAUSTICS_OFFSET_X = 0.05;
+const CAUSTICS_OFFSET_Y = 0.03;
+const CAUSTICS_DRAW_SPEED = 0.8;
 const BOAT_SCALE = 3.0;
 const BOAT_ROTATION_Y = -Math.PI * 0.25;
 const BOAT_POSITION = new THREE.Vector3(25, 0, 15);
@@ -1706,9 +1715,8 @@ function resolvePlayerSceneCollisions() {
             k.targetAngularVelocityX += (targetVelX - k.targetAngularVelocityX) * smoothFactor;
             k.targetAngularVelocityZ += (targetVelZ - k.targetAngularVelocityZ) * smoothFactor;
             
-            const maxAngularVelocity = 1.2;
-            k.targetAngularVelocityX = Math.max(-maxAngularVelocity, Math.min(maxAngularVelocity, k.targetAngularVelocityX));
-            k.targetAngularVelocityZ = Math.max(-maxAngularVelocity, Math.min(maxAngularVelocity, k.targetAngularVelocityZ));
+            k.targetAngularVelocityX = Math.max(-KELP_MAX_ANGULAR, Math.min(KELP_MAX_ANGULAR, k.targetAngularVelocityX));
+            k.targetAngularVelocityZ = Math.max(-KELP_MAX_ANGULAR, Math.min(KELP_MAX_ANGULAR, k.targetAngularVelocityZ));
         }
     });
 }
@@ -1811,6 +1819,9 @@ function initAudio() {
         underwaterAmbience.volume = 0.25;
         underwaterAmbience.preload = 'auto';
         
+        /**
+         * Attempt to start ambience playback when ready (or after user gesture).
+         */
         function tryPlayAudio() {
             if (underwaterAmbience && underwaterAmbience.readyState >= 2) {
                 const playPromise = underwaterAmbience.play();
@@ -2178,9 +2189,9 @@ function animate() {
     }
     if (causticsTexture) {
         causticsTexture.userData.time += delta;
-        causticsTexture.offset.x += delta * 0.05;
-        causticsTexture.offset.y += delta * 0.03;
-        causticsTexture.userData.drawFrame(causticsTexture.userData.time * 0.8);
+        causticsTexture.offset.x += delta * CAUSTICS_OFFSET_X;
+        causticsTexture.offset.y += delta * CAUSTICS_OFFSET_Y;
+        causticsTexture.userData.drawFrame(causticsTexture.userData.time * CAUSTICS_DRAW_SPEED);
         causticsTexture.needsUpdate = true;
     }
 
@@ -2197,8 +2208,8 @@ function animate() {
     if (kelp.length > 0) {
         const t = performance.now() * 0.001;
         kelp.forEach((k, idx) => {
-            const baseSwayZ = Math.sin(t * 0.8 + idx) * 0.08;
-            const baseSwayX = Math.sin(t * 0.6 + idx * 1.2) * 0.05;
+            const baseSwayZ = Math.sin(t * KELP_SWAY_FREQ_Z + idx) * KELP_SWAY_AMP_Z;
+            const baseSwayX = Math.sin(t * KELP_SWAY_FREQ_X + idx * 1.2) * KELP_SWAY_AMP_X;
             
             const smoothFactor = 0.15;
             k.angularVelocityX += (k.targetAngularVelocityX - k.angularVelocityX) * smoothFactor;
@@ -2208,10 +2219,10 @@ function animate() {
             k.targetAngularVelocityX *= dampingFactor;
             k.targetAngularVelocityZ *= dampingFactor;
             
-            if (Math.abs(k.angularVelocityX) < 0.005) k.angularVelocityX = 0;
-            if (Math.abs(k.angularVelocityZ) < 0.005) k.angularVelocityZ = 0;
-            if (Math.abs(k.targetAngularVelocityX) < 0.005) k.targetAngularVelocityX = 0;
-            if (Math.abs(k.targetAngularVelocityZ) < 0.005) k.targetAngularVelocityZ = 0;
+            if (Math.abs(k.angularVelocityX) < KELP_VELOCITY_EPS) k.angularVelocityX = 0;
+            if (Math.abs(k.angularVelocityZ) < KELP_VELOCITY_EPS) k.angularVelocityZ = 0;
+            if (Math.abs(k.targetAngularVelocityX) < KELP_VELOCITY_EPS) k.targetAngularVelocityX = 0;
+            if (Math.abs(k.targetAngularVelocityZ) < KELP_VELOCITY_EPS) k.targetAngularVelocityZ = 0;
             
             k.rotation.z = baseSwayZ + k.angularVelocityZ;
             k.rotation.x = baseSwayX + k.angularVelocityX;
