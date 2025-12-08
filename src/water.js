@@ -682,7 +682,7 @@ function buildHud() {
         border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 10px;
         padding: 10px 12px;
-        pointer-events: none;
+        pointer-events: auto;
         box-shadow: 0 10px 30px rgba(0,0,0,0.25);
     }
     .hud h1 {
@@ -730,12 +730,30 @@ function buildHud() {
         box-shadow: 0 0 8px rgba(100, 197, 255, 0.7);
         transition: width 0.3s ease, opacity 0.3s ease;
     }
+    .hud .back-btn {
+        align-self: flex-end;
+        padding: 6px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.35);
+        background: linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05));
+        color: #fff;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.2s ease;
+    }
+    .hud .back-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+        background: linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.08));
+    }
     `;
     document.head.appendChild(style);
 
     const hud = document.createElement('div');
     hud.className = 'hud';
     hud.innerHTML = `
+        <button class="back-btn" type="button">← Back to Menu</button>
         <h1>Swim Controls</h1>
         <div class="controls">WASD: swim · Mouse: look · Space/Shift: ascend/descend</div>
         <div class="controls" style="margin-top: 8px; font-size: 12px; opacity: 0.8;">Press Escape to return to menu</div>
@@ -746,6 +764,7 @@ function buildHud() {
     hudCycleBar = hud.querySelector('.fill');
     hudTimeLabel = hud.querySelector('.label');
     hudFishModelLabel = hud.querySelector('.fish-model-label');
+    hud.querySelector('.back-btn').addEventListener('click', returnToMenu);
     document.body.appendChild(hud);
 }
 
