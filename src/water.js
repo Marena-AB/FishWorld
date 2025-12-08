@@ -148,6 +148,7 @@ const STYLIZED_FISH_URL = new URL('./assets/stylized_fish.glb', import.meta.url)
 const DISCUS_FISH_URL = new URL('./assets/discus_fish.glb', import.meta.url).href;
 const ALIEN_FISH_URL = new URL('./assets/alien_fish_animated.glb', import.meta.url).href;
 const TITANIC_URL = new URL('./assets/titanic.glb', import.meta.url).href;
+const BOAT_URL = new URL('./assets/a_boat_object_no3.glb', import.meta.url).href;
 const KOI_FISH_URL = 'assets/fish_models/koi_fish/scene.gltf';
 const TUNA_FISH_URL = 'assets/fish_models/tuna_fish/scene.gltf';
 const SCHOOL_FISH_URL = 'assets/fish_models/school_of_fish/scene.gltf';
@@ -470,7 +471,7 @@ function addAmbientModels() {
         area: 0.95,
         minY: 5,
         maxY: 16,
-        yOffset: 0.3
+        yOffset: 0.2
     });
 
     // Stylized mid-water fish
@@ -601,6 +602,133 @@ function addTitanic() {
         undefined,
         (err) => console.error('Failed to load Titanic model', err)
     );
+}
+
+function addBoatWreck() {
+    loader.load(
+        BOAT_URL,
+        (gltf) => {
+            const boat = gltf.scene;
+            boat.traverse((obj) => {
+                if (obj.isMesh) {
+                    obj.castShadow = true;
+                    obj.receiveShadow = true;
+                    if (obj.material) {
+                        const clonedMaterial = obj.material.clone();
+                        if (obj.material.map) clonedMaterial.map = obj.material.map;
+                        if (obj.material.normalMap) clonedMaterial.normalMap = obj.material.normalMap;
+                        if (obj.material.roughnessMap) clonedMaterial.roughnessMap = obj.material.roughnessMap;
+                        if (obj.material.metalnessMap) clonedMaterial.metalnessMap = obj.material.metalnessMap;
+                        if (obj.material.aoMap) clonedMaterial.aoMap = obj.material.aoMap;
+                        if (obj.material.emissiveMap) clonedMaterial.emissiveMap = obj.material.emissiveMap;
+                        if (obj.material.alphaMap) clonedMaterial.alphaMap = obj.material.alphaMap;
+                        clonedMaterial.needsUpdate = true;
+                        obj.material = clonedMaterial;
+                    }
+                }
+            });
+            
+            // Position boat close to spawn point so player can see it immediately
+            boat.scale.setScalar(3.0); // Reduced from 12.0 - much more reasonable size
+            boat.rotation.y = -Math.PI * 0.25; // Angle it toward player
+            
+            // Position at origin first to calculate bbox
+            boat.position.set(0, 0, 0);
+            boat.updateMatrixWorld(true);
+            const boatBbox = new THREE.Box3().setFromObject(boat);
+            
+            // Move to actual position near spawn
+            boat.position.set(25, 0, 15);
+            
+            // Offset is how far below pivot the bottom is
+            const boatOffset = Math.abs(boatBbox.min.y) + 0.5;
+            
+            snapToTerrain(boat, boatOffset);
+            
+            // Add a subtle glow at the bow to highlight the built-in light
+            const bowLight = new THREE.PointLight(0xb8e6ff, 2.0, 100, 2);
+            bowLight.position.set(0, 6, 15);
+            boat.add(bowLight);
+            
+            scene.add(boat);
+            ambientActors.push(boat);
+            console.log('Boat wreck loaded near spawn at:', boat.position);
+        },
+        undefined,
+        (err) => console.error('Failed to load boat model', err)
+    );
+}
+
+function addCoralReefs() {
+    // Add multiple coral formations scattered around the scene
+    const coralCount = 25; // Number of coral formations to add
+    const coralArea = 0.65; // Spread across 65% of the plane
+    
+    for (let i = 0; i < coralCount; i++) {
+        loader.load(
+            CORAL_URL,
+            (gltf) => {
+                const coral = gltf.scene;
+                coral.traverse((obj) => {
+                    if (obj.isMesh) {
+                        obj.castShadow = true;
+                        obj.receiveShadow = true;
+                        if (obj.material) {
+                            const clonedMaterial = obj.material.clone();
+                            // Add slight color variation to corals
+                            const hueShift = (Math.random() - 0.5) * 0.1;
+                            clonedMaterial.color.offsetHSL(hueShift, 0, (Math.random() - 0.5) * 0.2);
+                            if (obj.material.map) clonedMaterial.map = obj.material.map;
+                            if (obj.material.normalMap) clonedMaterial.normalMap = obj.material.normalMap;
+                            if (obj.material.roughnessMap) clonedMaterial.roughnessMap = obj.material.roughnessMap;
+                            if (obj.material.metalnessMap) clonedMaterial.metalnessMap = obj.material.metalnessMap;
+                            if (obj.material.aoMap) clonedMaterial.aoMap = obj.material.aoMap;
+                            if (obj.material.emissiveMap) clonedMaterial.emissiveMap = obj.material.emissiveMap;
+                            clonedMaterial.needsUpdate = true;
+                            obj.material = clonedMaterial;
+                        }
+                    }
+                });
+                
+                // Random position across the seabed
+                const x = (Math.random() - 0.5) * PLANE_SIZE * coralArea;
+                const z = (Math.random() - 0.5) * PLANE_SIZE * coralArea;
+                
+                // Vary scale for diversity - MUCH smaller now
+                const scale = 0.8 + Math.random() * 1.2; // Scale between 0.8 and 2.0
+                coral.scale.setScalar(scale);
+                
+                // Random rotation for natural look
+                coral.rotation.y = Math.random() * Math.PI * 2;
+                
+                // Position at origin first to calculate bbox
+                coral.position.set(0, 0, 0);
+                coral.updateMatrixWorld(true);
+                const bbox = new THREE.Box3().setFromObject(coral);
+                
+                // Move to the actual X,Z position
+                coral.position.set(x, 0, z);
+                
+                // The offset is how far the bottom of the model is below the pivot
+                // If bbox.min.y is negative, we need to lift by that amount
+                const offset = Math.abs(bbox.min.y) + 0.2; // Small buffer to sit on terrain
+                
+                // Snap to terrain
+                snapToTerrain(coral, offset);
+                
+                scene.add(coral);
+                ambientActors.push(coral);
+                
+                // Log only the first few for confirmation
+                if (i < 3) {
+                    console.log(`Coral ${i + 1} loaded at:`, coral.position);
+                }
+            },
+            undefined,
+            (err) => console.error(`Failed to load coral ${i + 1}:`, err)
+        );
+    }
+    console.log(`Loading ${coralCount} coral formations...`);
 }
 
 function updateAmbientDrifters(delta) {
@@ -1615,6 +1743,8 @@ async function initScene() {
     buildHud();
     addAmbientModels();
     addTitanic();
+    addBoatWreck();
+    addCoralReefs(); // Add coral formations around the scene
     
     await loadFishPlayer();
     loadStaticFish();
