@@ -149,6 +149,7 @@ const DISCUS_FISH_URL = new URL('./assets/discus_fish.glb', import.meta.url).hre
 const ALIEN_FISH_URL = new URL('./assets/alien_fish_animated.glb', import.meta.url).href;
 const TITANIC_URL = new URL('./assets/titanic.glb', import.meta.url).href;
 const BOAT_URL = new URL('./assets/a_boat_object_no3.glb', import.meta.url).href;
+const LOWPOLY_CORAL_URL = new URL('./assets/lowpoly_coral_pack.glb', import.meta.url).href;
 const KOI_FISH_URL = 'assets/fish_models/koi_fish/scene.gltf';
 const TUNA_FISH_URL = 'assets/fish_models/tuna_fish/scene.gltf';
 const SCHOOL_FISH_URL = 'assets/fish_models/school_of_fish/scene.gltf';
@@ -466,12 +467,21 @@ function addAmbientModels() {
     // Coral heads on the seafloor for more structure
     addSceneModel({
         href: CORAL_URL,
-        scale: 9.0,
+        scale: 9.5,
         count: 24,
         area: 0.95,
         minY: 5,
         maxY: 16,
-        yOffset: 0.2
+        yOffset: 0.1
+    });
+    addSceneModel({
+        href: LOWPOLY_CORAL_URL,
+        scale: 7.0,
+        count: 18,
+        area: 0.95,
+        minY: 5,
+        maxY: 16,
+        yOffset: 0.1
     });
 
     // Stylized mid-water fish
@@ -663,10 +673,12 @@ function addCoralReefs() {
     // Add multiple coral formations scattered around the scene
     const coralCount = 25; // Number of coral formations to add
     const coralArea = 0.65; // Spread across 65% of the plane
+    const coralVariants = [CORAL_URL, LOWPOLY_CORAL_URL];
     
     for (let i = 0; i < coralCount; i++) {
+        const coralUrl = coralVariants[Math.floor(Math.random() * coralVariants.length)];
         loader.load(
-            CORAL_URL,
+            coralUrl,
             (gltf) => {
                 const coral = gltf.scene;
                 coral.traverse((obj) => {
