@@ -1,6 +1,7 @@
 /* global module, require, __dirname */
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 module.exports = {
     entry: {
@@ -26,7 +27,8 @@ module.exports = {
             {
                 test: /\.(stl|obj|mtl|gltf|glb)$/i,
                 type: 'asset/resource',
-                generator: { filename: 'models/[name][ext]', },
+                // Add hash to avoid filename collisions (e.g., multiple scene.gltf files)
+                generator: { filename: 'models/[name].[contenthash][ext]', },
             },
             {
                 test: /\.(mp3|wav|ogg|m4a)$/i,
@@ -43,6 +45,15 @@ module.exports = {
             template: './src/index.html',
             filename: 'index.html',
             chunks: ['menu'],
+        }),
+        // Copy static assets (models/textures) so absolute /assets paths work in dev and prod
+        new CopyWebpackPlugin({
+            patterns: [
+                {
+                    from: path.resolve(__dirname, 'src', 'assets'),
+                    to: path.resolve(__dirname, 'dist', 'assets'),
+                },
+            ],
         }),
     ],
     devServer: {

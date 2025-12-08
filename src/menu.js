@@ -5,23 +5,23 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { KHRMaterialsPBRSpecularGlossiness } from './pbrSpecGlossExtension.js';
 
-import alienFishUrl from './assets/alien_fish_animated.glb';
-import discusFishUrl from './assets/discus_fish.glb';
-import stylizedFishUrl from './assets/stylized_fish.glb';
-
 let gameLoaded = false;
 let gameModule = null;
 let backgroundScene = null;
 
-const TURTLE_URL = './assets/turtle.glb';
+// Always resolve asset URLs through bundler so preview loader can fetch them
+// Serve models from the copied assets folder with relative paths so it works in dev server and file:// previews
+const DEFAULT_FISH_URL = 'assets/fish.glb';
+const ALIEN_FISH_URL = 'assets/alien_fish_animated.glb';
+const STYLIZED_FISH_URL = 'assets/stylized_fish.glb';
+const TURTLE_URL = 'assets/turtle.glb';
 const KOI_FISH_URL = 'assets/fish_models/koi_fish/scene.gltf';
-const TUNA_FISH_URL = 'assets/fish_models/tuna_fish/scene.gltf';
 const ANIMATED_FISH_URL = 'assets/fish_models/fish_animated/scene.gltf';
 
 const FISH_MODELS = [
     { 
         name: 'Default Fish', 
-        url: new URL('./assets/fish.glb', import.meta.url).href,
+        url: DEFAULT_FISH_URL,
         scale: 0.5,
         rotationOffsetY: 0,
         rotationOffsetX: 0,
@@ -29,23 +29,15 @@ const FISH_MODELS = [
     },
     { 
         name: 'Alien Fish', 
-        url: alienFishUrl,
+        url: ALIEN_FISH_URL,
         scale: 0.4,
         rotationOffsetY: 0,
         rotationOffsetX: 0,
         rotationOffsetZ: 0
     },
     { 
-        name: 'Discus Fish', 
-        url: discusFishUrl,
-        scale: 450,
-        rotationOffsetY: 0,
-        rotationOffsetX: 0,
-        rotationOffsetZ: 0
-    },
-    { 
         name: 'Stylized Fish', 
-        url: stylizedFishUrl,
+        url: STYLIZED_FISH_URL,
         scale: 0.5,
         rotationOffsetY: 0,
         rotationOffsetX: 0,
@@ -60,21 +52,13 @@ const FISH_MODELS = [
         rotationOffsetZ: 0
     },
     { 
-        name: 'Tuna Fish', 
-        url: TUNA_FISH_URL,
-        scale: 0.85,
-        rotationOffsetY: Math.PI / 2,
-        rotationOffsetX: 0,
-        rotationOffsetZ: 0
-    },
-    { 
         name: 'Animated Fish', 
         url: ANIMATED_FISH_URL,
         scale: 0.65,
         rotationOffsetY: 0,
         rotationOffsetX: 0,
         rotationOffsetZ: 0
-    },
+    }, 
     { 
         name: 'Sea Turtle', 
         url: TURTLE_URL,
@@ -178,6 +162,7 @@ function loadPreviewModel(index) {
         (gltf) => {
             previewModel = clone(gltf.scene);
             
+            // Start from configured scale, then normalize to fit preview frame
             previewModel.scale.setScalar(fishModel.scale);
             previewModel.rotation.y = fishModel.rotationOffsetY;
             previewModel.rotation.x = fishModel.rotationOffsetX;
@@ -190,13 +175,26 @@ function loadPreviewModel(index) {
                 }
             });
             
+            // Frame model so it always fits the preview cube
             const box = new THREE.Box3().setFromObject(previewModel);
-            const center = box.getCenter(new THREE.Vector3());
-            previewModel.position.sub(center);
-            
             const size = box.getSize(new THREE.Vector3());
             const maxDim = Math.max(size.x, size.y, size.z);
-            const distance = maxDim > 0 ? maxDim * 2.5 : 5;
+            const targetSize = 2.2; // approximate height/width we want in preview
+            if (maxDim > 0) {
+                const fitScale = targetSize / maxDim;
+                previewModel.scale.multiplyScalar(fitScale);
+            } else {
+                previewModel.scale.multiplyScalar(1.5);
+            }
+
+            // Recenter after scaling
+            const fittedBox = new THREE.Box3().setFromObject(previewModel);
+            const center = fittedBox.getCenter(new THREE.Vector3());
+            previewModel.position.sub(center);
+            
+            const fittedSize = fittedBox.getSize(new THREE.Vector3());
+            const fittedMaxDim = Math.max(fittedSize.x, fittedSize.y, fittedSize.z);
+            const distance = fittedMaxDim > 0 ? Math.max(fittedMaxDim * 2.2, 3) : 5;
             previewCamera.position.set(0, 0, distance);
             previewCamera.lookAt(0, 0, 0);
             
@@ -213,7 +211,11 @@ function loadPreviewModel(index) {
         },
         undefined,
         (error) => {
-            console.error('Failed to load preview model:', error);
+            console.error(`Failed to load preview model "${fishModel.name}" from ${fishModel.url}:`, error);
+            const nameEl = document.getElementById('fish-name');
+            if (nameEl) {
+                nameEl.textContent = `${fishModel.name} (preview failed)`;
+            }
             canvas.style.opacity = '1';
         }
     );
@@ -264,7 +266,6 @@ function createMenu() {
             </div>
             <div class="menu-footer">
                 <p>Use WASD to swim • Mouse to look • Space/Shift to ascend/descend</p>
-                <p style="margin-top: 8px; font-size: 0.85rem; opacity: 0.8;">Press Escape in-game to return to menu and change fish</p>
             </div>
         </div>
     `;
@@ -391,4 +392,3 @@ if (document.readyState === 'loading') {
 } else {
     createMenu();
 }
-

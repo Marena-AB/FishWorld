@@ -172,14 +172,6 @@ const PLAYER_FISH_MODELS = [
         rotationOffsetZ: 0
     },
     { 
-        name: 'Discus Fish', 
-        url: discusFishUrl, 
-        scale: 10.95, 
-        rotationOffsetY: Math.PI / 2,
-        rotationOffsetX: 0,
-        rotationOffsetZ: 0
-    },
-    { 
         name: 'Stylized Fish', 
         url: stylizedFishUrl, 
         scale: 2.5, 
@@ -192,14 +184,6 @@ const PLAYER_FISH_MODELS = [
         url: KOI_FISH_URL, 
         scale: 1.5, 
         rotationOffsetY: -Math.PI / 2,
-        rotationOffsetX: 0,
-        rotationOffsetZ: 0
-    },
-    { 
-        name: 'Tuna Fish', 
-        url: TUNA_FISH_URL, 
-        scale: 4.25, 
-        rotationOffsetY: Math.PI / 2,
         rotationOffsetX: 0,
         rotationOffsetZ: 0
     },
