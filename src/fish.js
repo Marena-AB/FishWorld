@@ -3,6 +3,11 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { KHRMaterialsPBRSpecularGlossiness } from './pbrSpecGlossExtension.js';
 
+/**
+ * AI-controlled or player-controlled fish actor.
+ * Handles model loading, animation playback, wandering targets, jumping, physics sync,
+ * emissive pulsing, and optional external control toggling.
+ */
 export class Fish {
     static loader = new GLTFLoader();
     static {
@@ -31,6 +36,10 @@ export class Fish {
         return promise;
     }
 
+    /**
+     * @param {THREE.Scene} scene - Three.js scene to attach the fish model to.
+     * @param {object} options - Model, movement, and physics configuration.
+     */
     constructor(scene, options = {}) {
         this.scene = scene;
         
@@ -99,6 +108,10 @@ export class Fish {
         this.load();
     }
     
+    /**
+     * Toggle external control (player or camera-driven) vs AI roaming.
+     * @param {boolean} controlled
+     */
     setControlled(controlled) {
         this.isControlled = controlled;
         if (controlled) {
@@ -106,6 +119,9 @@ export class Fish {
         }
     }
     
+    /**
+     * Load and clone the GLTF model, apply materials/animations, and add to scene.
+     */
     async load() {
         try {
             const gltf = await Fish.loadModel(this.modelPath, this.modelFile);
@@ -165,6 +181,9 @@ export class Fish {
         }
     }
     
+    /**
+     * Choose a new wander target within bounds, respecting minimum distance and water surface.
+     */
     pickRandomTarget() {
         // Let fish roam nearly the full world bounds (leave a small margin so they don't clip the edge)
         const margin = (this.worldBounds.max - this.worldBounds.min) * 0.05;
@@ -196,6 +215,10 @@ export class Fish {
         this.currentTargetTime = this.minTravelTime + Math.random() * (this.maxTravelTime - this.minTravelTime);
     }
     
+    /**
+     * Advance animations and AI motion; handles wandering, jumping, clamping, and emissive pulse.
+     * @param {number} delta - Seconds since last frame.
+     */
     update(delta) {
         if (!this.model) return;
         this.time += delta;

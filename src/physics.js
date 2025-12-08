@@ -1,3 +1,10 @@
+/*
+    Physics Module for Underwater Scene is responsible for initializing
+    and managing the Rapier physics engine, creating colliders for terrain
+    and scene objects, handling fish physics bodies, and updating the
+    physics simulation in sync with the Three.js rendering loop.
+*/ 
+
 import RAPIER from '@dimforge/rapier3d-compat';
 
 let physicsWorld = null;
@@ -201,9 +208,7 @@ export function syncPhysicsToThreeJS() {
             
             // Update Three.js mesh position
             obj.mesh.position.set(position.x, position.y, position.z);
-            
-            // Update rotation (optional - you may want to keep your heading logic)
-            // obj.mesh.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+        
         }
     });
 }

@@ -1,3 +1,11 @@
+/**
+ * Menu Background with Animated Water Surface
+ * 
+ * This module sets up a Three.js scene with an animated water surface
+ * to be used as a dynamic background for the main menu. It includes
+ * lighting, fog, and camera animation to create an engaging visual effect.
+ */
+
 import * as THREE from 'three';
 import { Water } from 'three/examples/jsm/objects/Water.js';
 
@@ -7,6 +15,11 @@ let ambientLight, directionalLight;
 let clock;
 let animationId;
 
+/**
+ * Initialize the menu background scene with animated water.
+ * @param {*} container 
+ * @returns {Object} An object with a dispose method to clean up resources.
+ */
 export function initMenuBackground(container) {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
@@ -88,6 +101,9 @@ export function initMenuBackground(container) {
 
     clock = new THREE.Clock();
 
+    /**
+     * Animate the scene, updating water and camera position.
+     */
     function animate() {
         animationId = requestAnimationFrame(animate);
 
@@ -120,6 +136,9 @@ export function initMenuBackground(container) {
 
     animate();
 
+    /**
+     * Handle window resize events to adjust camera and renderer.
+     */
     function onResize() {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();

@@ -1,3 +1,11 @@
+
+/*
+    Water module is the main application script for the underwater scene.
+    It sets up the Three.js scene, camera, renderer, controls, lighting,
+    terrain, water surface, fish models, ambient life, and handles the  
+    animation loop and user input.
+*/
+
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -25,7 +33,6 @@ const PLANE_SIZE = 800;          // world-space span of the seabed
 const SWIM_ACCEL = 45;           // swim acceleration strength
 const SWIM_DRAG = 0.9;           // damping factor per frame
 const MAX_SWIM_SPEED = 50;       // cap on swim speed
-const CAMERA_FOLLOW_RESPONSE = 8; // smoothing speed for camera follow (per second)
 const CAMERA_DISTANCE = 12;       // chase distance behind the fish (reduced from 15)
 const CAMERA_HEIGHT = 5;          // chase height above the fish (reduced from 6)
 const INITIAL_CAMERA_OFFSET = new THREE.Vector3(0, CAMERA_HEIGHT, -CAMERA_DISTANCE);
@@ -43,8 +50,6 @@ const PLAYER_RADIUS = 2.2;
 
 // Day/night cycle settings
 const cycleDurationMs = 60000; 
-const daySkyColor = new THREE.Color(0x8cc8ff);
-const nightSkyColor = new THREE.Color(0x0a1938);
 const dayWaterColor = new THREE.Color(0x006994); 
 const nightWaterColor = new THREE.Color(0x000510);
 const dayUnderwaterFog = new THREE.Color(0x1a6580); // Darker, more realistic (was 0x2a7fa0)
@@ -102,12 +107,23 @@ const tmpRight = new THREE.Vector3();
 const upVector = new THREE.Vector3(0, 1, 0);
 const tmpHeading = new THREE.Vector3();
 const playerHeading = new THREE.Vector3(0, 0, -1); // cache last heading to keep camera behind when stopped
-const desiredCamPos = new THREE.Vector3();
 const accel = new THREE.Vector3();
 const tmpCollide = new THREE.Vector3();
-const tmpCollide2 = new THREE.Vector3();
+const tmpStartPos = new THREE.Vector3();
+const tmpDisplacement = new THREE.Vector3();
+const tmpSunDir = new THREE.Vector3();
+const tmpDriftDir = new THREE.Vector3();
+const colliderScratch = [];
+const colliderSeen = new Set();
 
-// Utility to space out spawned fish so they don't all cluster
+/**
+ * Utility to space out spawned fish so they don't all cluster.
+ * @param {{min:number,max:number}} worldBounds - X/Z bounds.
+ * @param {number} minSpacing - Minimum spacing between spawned points.
+ * @param {THREE.Vector3[]} existingPositions - Positions already placed.
+ * @param {{min:number,max:number}} yRange - Vertical range to spawn within.
+ * @returns {THREE.Vector3} new spawn position.
+ */
 function getSpawnPosition(worldBounds, minSpacing, existingPositions, yRange) {
     const maxAttempts = 30;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -156,6 +172,31 @@ const SCHOOL_FISH_URL = 'assets/fish_models/school_of_fish/scene.gltf';
 const STAR_FISH_URL = 'assets/fish_models/star_fish/scene.gltf';
 const ANIMATED_FISH_URL = 'assets/fish_models/fish_animated/scene.gltf';
 const CORAL_URL = new URL('./assets/coral_v2.0.glb', import.meta.url).href;
+
+// Tunable scene parameters (avoid magic numbers)
+const CORAL_PRIMARY_CONFIG = { scale: 9.5, count: 24, area: 0.95, minY: 5, maxY: 16, offset: 0.1 };
+const CORAL_VARIANT_CONFIG = { scale: 7.0, count: 18, area: 0.95, minY: 5, maxY: 16, offset: 0.1 };
+const CORAL_REEF_SCATTER_COUNT = 25;
+const CORAL_REEF_SCATTER_AREA = 0.65;
+const CORAL_REEF_SCALE_MIN = 0.8;
+const CORAL_REEF_SCALE_RANGE = 1.2; // max = min + range
+const CORAL_REEF_TERRAIN_BUFFER = 0.2;
+const BOAT_SCALE = 3.0;
+const BOAT_ROTATION_Y = -Math.PI * 0.25;
+const BOAT_POSITION = new THREE.Vector3(25, 0, 15);
+const BOAT_OFFSET_BUFFER = 0.5;
+const BOW_LIGHT_INTENSITY = 2.0;
+const BOW_LIGHT_DISTANCE = 100;
+const BOW_LIGHT_POSITION = new THREE.Vector3(0, 6, 15);
+const BLUE_WHALE_RADIUS = 30;
+const ORCA_RADIUS = 22;
+const SPERM_WHALE_RADIUS = 26;
+const PLAYER_COLLISION_ITERATIONS = 3;
+const LARGE_CREATURE_COLLISION_THRESHOLD = 15;
+const LARGE_CREATURE_PUSH_MULTIPLIER = 2.5;
+const DEFAULT_PUSH_MULTIPLIER = 1.0;
+const LARGE_CREATURE_STOP_SCALE = 4.0;
+const DEFAULT_STOP_SCALE = 1.5;
 
 const PLAYER_FISH_MODELS = [
     { 
@@ -229,6 +270,9 @@ let hudFishModelLabel = null; // HUD element for fish model name
 
 // Controls
 let controls;
+/**
+ * Configure orbit controls for the scene camera.
+ */
 function initControls() {
     controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -248,6 +292,9 @@ let sun;
 let causticsLight;
 let causticsTexture;
 let cameraLight; // Add camera-mounted light for local visibility
+/**
+ * Create ambient, directional (sun), caustic, and camera-follow lights.
+ */
 function initLights() {
     ambient = new THREE.AmbientLight(0x4a9fb5, 0.5); // Reduced from 0.8 to 0.5 for realism
     scene.add(ambient);
@@ -271,6 +318,9 @@ function initLights() {
 }
 
 
+/**
+ * Generate and place the heightmapped sand terrain mesh.
+ */
 function buildSandDunes() {
     const roughness = 0.35;
     const heightmap = generateTerrain(DETAIL, roughness);
@@ -316,15 +366,26 @@ function buildSandDunes() {
 
 const terrainRaycaster = new THREE.Raycaster();
 const downVector = new THREE.Vector3(0, -1, 0);
+/**
+ * Snap an object to the terrain and optionally lift it by offset.
+ * @param {THREE.Object3D} object - Object to position.
+ * @param {number} offset - Vertical offset above terrain.
+ * @returns {number|null} terrain Y at the snap point, or null if terrain missing.
+ */
 function snapToTerrain(object, offset = 0) {
-    if (!dunes) { return; }
+    if (!dunes) { return null; }
     terrainRaycaster.set(new THREE.Vector3(object.position.x, 200, object.position.z), downVector);
     const hit = terrainRaycaster.intersectObject(dunes, false)[0];
     if (hit) {
         object.position.y = hit.point.y + offset;
+        return hit.point.y;
     }
+    return null;
 }
 
+/**
+ * Scatter rocks and kelp meshes, computing simple collision radii.
+ */
 function addRocksAndPlants() {
     const rockColor = new THREE.Color(0x6b6252);
     for (let i = 0; i < ROCK_COUNT; i++) {
@@ -381,6 +442,11 @@ function addRocksAndPlants() {
     }
 }
 
+/**
+ * Generic loader for ambient scene models (plants, fish, whales, etc.).
+ * Supports cloning, optional terrain snapping, wandering, and animation mixing.
+ * @param {object} options - Loader configuration.
+ */
 function addSceneModel(options) {
     const { href, scale = 1, count = 1, area = 0.5, minY = 5, maxY = 35, yOffset = 0, rotation = null, snap = true, wander = false, wanderSpeed = 0.6 } = options;
     const makeTarget = () => new THREE.Vector3(
@@ -399,18 +465,7 @@ function addSceneModel(options) {
                     if (obj.isMesh) {
                         obj.castShadow = true;
                         obj.receiveShadow = true;
-                        if (obj.material) {
-                            const clonedMaterial = obj.material.clone();
-                            if (obj.material.map) clonedMaterial.map = obj.material.map;
-                            if (obj.material.normalMap) clonedMaterial.normalMap = obj.material.normalMap;
-                            if (obj.material.roughnessMap) clonedMaterial.roughnessMap = obj.material.roughnessMap;
-                            if (obj.material.metalnessMap) clonedMaterial.metalnessMap = obj.material.metalnessMap;
-                            if (obj.material.aoMap) clonedMaterial.aoMap = obj.material.aoMap;
-                            if (obj.material.emissiveMap) clonedMaterial.emissiveMap = obj.material.emissiveMap;
-                            if (obj.material.alphaMap) clonedMaterial.alphaMap = obj.material.alphaMap;
-                            clonedMaterial.needsUpdate = true;
-                            obj.material = clonedMaterial;
-                        }
+                        // Reuse materials; only clone if a subclass tweaks per instance
                     }
                 });
                 const pos = new THREE.Vector3(
@@ -452,7 +507,11 @@ function addSceneModel(options) {
     );
 }
 
+/**
+ * Populate the scene with ambient vegetation/animals (seaweed, fish variants, whales).
+ */
 function addAmbientModels() {
+
     // Seaweed clusters for depth cues
     addSceneModel({
         href: SEAWEED_URL,
@@ -467,13 +526,26 @@ function addAmbientModels() {
     // Coral heads on the seafloor for more structure
     addSceneModel({
         href: CORAL_URL,
-        scale: 9.5,
-        count: 24,
-        area: 0.95,
-        minY: 5,
-        maxY: 16,
-        yOffset: 0.1
+        scale: CORAL_PRIMARY_CONFIG.scale,
+        count: CORAL_PRIMARY_CONFIG.count,
+        area: CORAL_PRIMARY_CONFIG.area,
+        minY: CORAL_PRIMARY_CONFIG.minY,
+        maxY: CORAL_PRIMARY_CONFIG.maxY,
+        yOffset: CORAL_PRIMARY_CONFIG.offset
     });
+
+    // Additional coral formations for variety
+    addSceneModel({
+        href: LOWPOLY_CORAL_URL,
+        scale: CORAL_VARIANT_CONFIG.scale,
+        count: CORAL_VARIANT_CONFIG.count,
+        area: CORAL_VARIANT_CONFIG.area,
+        minY: CORAL_VARIANT_CONFIG.minY,
+        maxY: CORAL_VARIANT_CONFIG.maxY,
+        yOffset: CORAL_VARIANT_CONFIG.offset
+    });
+
+    // Additional coral variant for diversity
     addSceneModel({
         href: LOWPOLY_CORAL_URL,
         scale: 7.0,
@@ -496,6 +568,7 @@ function addAmbientModels() {
         wanderSpeed: 2.0
     });
 
+    // Discus fish schools
     addSceneModel({
         href: DISCUS_FISH_URL,
         scale: 10.0,  
@@ -507,6 +580,7 @@ function addAmbientModels() {
         wanderSpeed: 1.8
     });
 
+    // Alien fish variants
     addSceneModel({
         href: ALIEN_FISH_URL,
         scale: 0.2,
@@ -568,6 +642,9 @@ function addAmbientModels() {
     });
 }
 
+/**
+ * Load and place the Titanic model near the water surface.
+ */
 function addTitanic() {
     loader.load(
         TITANIC_URL,
@@ -614,6 +691,9 @@ function addTitanic() {
     );
 }
 
+/**
+ * Load and place the boat wreck near spawn with a bow light for visibility.
+ */
 function addBoatWreck() {
     loader.load(
         BOAT_URL,
@@ -639,8 +719,8 @@ function addBoatWreck() {
             });
             
             // Position boat close to spawn point so player can see it immediately
-            boat.scale.setScalar(3.0); // Reduced from 12.0 - much more reasonable size
-            boat.rotation.y = -Math.PI * 0.25; // Angle it toward player
+            boat.scale.setScalar(BOAT_SCALE);
+            boat.rotation.y = BOAT_ROTATION_Y; // Angle it toward player
             
             // Position at origin first to calculate bbox
             boat.position.set(0, 0, 0);
@@ -648,16 +728,16 @@ function addBoatWreck() {
             const boatBbox = new THREE.Box3().setFromObject(boat);
             
             // Move to actual position near spawn
-            boat.position.set(25, 0, 15);
+            boat.position.copy(BOAT_POSITION);
             
             // Offset is how far below pivot the bottom is
-            const boatOffset = Math.abs(boatBbox.min.y) + 0.5;
+            const boatOffset = Math.abs(boatBbox.min.y) + BOAT_OFFSET_BUFFER;
             
             snapToTerrain(boat, boatOffset);
             
             // Add a subtle glow at the bow to highlight the built-in light
-            const bowLight = new THREE.PointLight(0xb8e6ff, 2.0, 100, 2);
-            bowLight.position.set(0, 6, 15);
+            const bowLight = new THREE.PointLight(0xb8e6ff, BOW_LIGHT_INTENSITY, BOW_LIGHT_DISTANCE, 2);
+            bowLight.position.copy(BOW_LIGHT_POSITION);
             boat.add(bowLight);
             
             scene.add(boat);
@@ -669,10 +749,13 @@ function addBoatWreck() {
     );
 }
 
+/**
+ * Scatter coral formations (mixing variants) across the seabed with color/scale variation.
+ */
 function addCoralReefs() {
     // Add multiple coral formations scattered around the scene
-    const coralCount = 25; // Number of coral formations to add
-    const coralArea = 0.65; // Spread across 65% of the plane
+    const coralCount = CORAL_REEF_SCATTER_COUNT; // Number of coral formations to add
+    const coralArea = CORAL_REEF_SCATTER_AREA; // Spread across percentage of the plane
     const coralVariants = [CORAL_URL, LOWPOLY_CORAL_URL];
     
     for (let i = 0; i < coralCount; i++) {
@@ -686,6 +769,7 @@ function addCoralReefs() {
                         obj.castShadow = true;
                         obj.receiveShadow = true;
                         if (obj.material) {
+                            // Clone to allow per-instance tint variation
                             const clonedMaterial = obj.material.clone();
                             // Add slight color variation to corals
                             const hueShift = (Math.random() - 0.5) * 0.1;
@@ -707,7 +791,7 @@ function addCoralReefs() {
                 const z = (Math.random() - 0.5) * PLANE_SIZE * coralArea;
                 
                 // Vary scale for diversity - MUCH smaller now
-                const scale = 0.8 + Math.random() * 1.2; // Scale between 0.8 and 2.0
+                const scale = CORAL_REEF_SCALE_MIN + Math.random() * CORAL_REEF_SCALE_RANGE;
                 coral.scale.setScalar(scale);
                 
                 // Random rotation for natural look
@@ -723,7 +807,7 @@ function addCoralReefs() {
                 
                 // The offset is how far the bottom of the model is below the pivot
                 // If bbox.min.y is negative, we need to lift by that amount
-                const offset = Math.abs(bbox.min.y) + 0.2; // Small buffer to sit on terrain
+                const offset = Math.abs(bbox.min.y) + CORAL_REEF_TERRAIN_BUFFER; // Small buffer to sit on terrain
                 
                 // Snap to terrain
                 snapToTerrain(coral, offset);
@@ -743,36 +827,43 @@ function addCoralReefs() {
     console.log(`Loading ${coralCount} coral formations...`);
 }
 
+/**
+ * Update drifting ambient actors toward wandering targets.
+ * @param {number} delta - Seconds since last frame.
+ */
 function updateAmbientDrifters(delta) {
     for (let i = 0; i < ambientDrifters.length; i++) {
         const drift = ambientDrifters[i];
         const mesh = drift.mesh;
         if (!mesh) { continue; }
-        const dir = drift.target.clone().sub(mesh.position);
-        const dist = dir.length();
+        tmpDriftDir.copy(drift.target).sub(mesh.position);
+        const dist = tmpDriftDir.length();
         if (dist < 1) {
-            drift.target = new THREE.Vector3(
+            drift.target.set(
                 (Math.random() - 0.5) * PLANE_SIZE * drift.area,
                 drift.minY + Math.random() * (drift.maxY - drift.minY),
                 (Math.random() - 0.5) * PLANE_SIZE * drift.area
             );
             continue;
         }
-        dir.multiplyScalar(1 / dist);
-        mesh.position.addScaledVector(dir, drift.speed * delta);
+        tmpDriftDir.multiplyScalar(1 / dist);
+        mesh.position.addScaledVector(tmpDriftDir, drift.speed * delta);
         // Clamp to bounds and below surface
         const extent = (PLANE_SIZE * drift.area) * 0.5;
         mesh.position.x = THREE.MathUtils.clamp(mesh.position.x, -extent, extent);
         mesh.position.z = THREE.MathUtils.clamp(mesh.position.z, -extent, extent);
         mesh.position.y = THREE.MathUtils.clamp(mesh.position.y, drift.minY, Math.min(drift.maxY, WATER_SURFACE_Y - 2));
         // Face direction of travel
-        const yaw = Math.atan2(dir.x, dir.z);
+        const yaw = Math.atan2(tmpDriftDir.x, tmpDriftDir.z);
         mesh.rotation.y = yaw;
         mesh.updateMatrixWorld();
     }
 }
 
 let water;
+/**
+ * Create the animated water surface plane with normals and color controls.
+ */
 function addWaterSurface() {
     const waterGeometry = new THREE.PlaneGeometry(PLANE_SIZE, PLANE_SIZE);
     
@@ -802,6 +893,10 @@ function addWaterSurface() {
     scene.add(water);
 }
 
+/**
+ * Initialize post-processing with bloom effect for emissive glow.
+ * @returns {void}
+ */
 function initPostProcessing() {
     const ENABLE_BLOOM = true; // enable bloom so emissive fish visibly glow
     if (!ENABLE_BLOOM) {
@@ -819,6 +914,10 @@ function initPostProcessing() {
     composer.addPass(bloomPass);
 }
 
+/**
+ * Create a dynamic caustics texture using canvas animation.
+ * @returns {THREE.CanvasTexture} animated caustics texture.
+ */
 function createCausticsTexture() {
     const size = 512;
     const canvas = document.createElement('canvas');
@@ -855,6 +954,9 @@ function createCausticsTexture() {
     return texture;
 }
 
+/**
+ * Add a spotlight with caustics texture projected onto the scene.
+ */
 function addCausticsLight() {
     causticsTexture = createCausticsTexture();
     causticsLight = new THREE.SpotLight(0xffffff, 0.45, 400, Math.PI / 3, 0.7, 1.5);
@@ -866,6 +968,9 @@ function addCausticsLight() {
     scene.add(causticsLight.target);
 }
 
+/**
+ * Build the HUD overlay with controls, time indicator, and fish model label.
+ */
 function buildHud() {
     const style = document.createElement('style');
     style.textContent = `
@@ -967,6 +1072,9 @@ function buildHud() {
     document.body.appendChild(hud);
 }
 
+/**
+ * Load the player-controlled fish model and initialize animations/controls.
+ */
 function loadFishPlayer() {
     const fishModel = PLAYER_FISH_MODELS[currentFishModelIndex];
     loader.load(
@@ -1138,6 +1246,10 @@ export function setFishModelByIndex(index) {
     switchPlayerFishModel(0);
 }
 
+/**
+ * Switch control to the next controllable fish (player or AI).
+ * @returns {void}
+ */
 function switchControl() {
     const controllableFish = [fish, ...aiFish.filter(f => f.canMove)];
     
@@ -1173,6 +1285,9 @@ function switchControl() {
     console.log(`Switched control to fish ${nextIndex + 1} of ${controllableFish.length}`);
 }
 
+/**
+ * Load and place glowing fish with emissive materials that pulse.
+ */
 function loadStaticFish() {
     const worldBounds = {
         min: -PLANE_SIZE / 2,
@@ -1237,6 +1352,9 @@ function loadStaticFish() {
     });
 }
 
+/**
+ * Load glowing fish that are more active at night with emissive materials.
+ */
 function loadGlowingFish() {
     const worldBounds = {
         min: -PLANE_SIZE / 2,
@@ -1341,7 +1459,7 @@ function loadLargeCreatures() {
         waterSurfaceY: WATER_SURFACE_Y,
         physicsWorld: getPhysicsWorld(),
         canJump: false,  // CHANGED: Whales shouldn't jump, prevents getting stuck
-        radius: 30,  // MASSIVE radius - increased from 25
+        radius: BLUE_WHALE_RADIUS,  // MASSIVE radius - increased from 25
         materialModifier: (mat) => {
             mat.roughness = 0.6;
             mat.metalness = 0.1;
@@ -1370,7 +1488,7 @@ function loadLargeCreatures() {
         waterSurfaceY: WATER_SURFACE_Y,
         physicsWorld: getPhysicsWorld(),
         canJump: false,  // CHANGED: Orcas shouldn't jump in this implementation, prevents getting stuck
-        radius: 22,  // Large radius - increased from 18
+        radius: ORCA_RADIUS,  // Large radius - increased from 18
         materialModifier: (mat) => {
             mat.roughness = 0.5;
             mat.metalness = 0.15;
@@ -1399,7 +1517,7 @@ function loadLargeCreatures() {
         waterSurfaceY: WATER_SURFACE_Y,
         physicsWorld: getPhysicsWorld(),
         canJump: false,  // CHANGED: Sperm whales shouldn't jump, prevents getting stuck
-        radius: 26,  // Large radius - increased from 22
+        radius: SPERM_WHALE_RADIUS,  // Large radius - increased from 22
         materialModifier: (mat) => {
             mat.roughness = 0.7;
             mat.metalness = 0.05;
@@ -1408,24 +1526,33 @@ function loadLargeCreatures() {
     largeFish.push(spermWhale);
 }
 
+/**
+ * Collect unique AI fish/creature instances for collision resolution.
+ * @returns {Array} colliderScratch list reused per frame.
+ */
 function gatherFishColliders() {
-    const seen = new Set();
-    const colliders = [];
+    colliderSeen.clear();
+    colliderScratch.length = 0;
     const addList = (arr) => {
         arr.forEach((f) => {
             if (!f || !f.model) { return; }
-            if (seen.has(f)) { return; }
-            seen.add(f);
-            colliders.push(f);
+            if (colliderSeen.has(f)) { return; }
+            colliderSeen.add(f);
+            colliderScratch.push(f);
         });
     };
     addList(guppyFish);
     addList(nightFish);
     addList(largeFish);
-    return colliders;
+    return colliderScratch;
 }
 
+/**
+ * Separate AI-controlled fish/creatures so they glide past instead of overlapping.
+ * @param {Array} colliders - List of fish/creature instances with models.
+ */
 function resolveAICollisions(colliders) {
+    // Separate all AI-controlled fish/creatures so they glide past instead of overlapping
     for (let i = 0; i < colliders.length; i++) {
         const a = colliders[i];
         if (!a.model) { continue; }
@@ -1474,12 +1601,16 @@ function resolveAICollisions(colliders) {
     }
 }
 
+/**
+ * Resolve collisions between the player fish and AI fish/whales with strong pushback.
+ * @param {Array} colliders - Fish/creature instances with model and radius.
+ */
 function resolvePlayerCollisions(colliders) {
     if (!fish) { return; }
     
-    // Run collision resolution multiple times to ensure complete separation
-    // This prevents any penetration even at high speeds
-    const iterations = 3;
+    // Run collision resolution multiple times to ensure complete separation,
+    // preventing penetration even at high speeds.
+    const iterations = PLAYER_COLLISION_ITERATIONS;
     for (let iter = 0; iter < iterations; iter++) {
         colliders.forEach((f) => {
             if (!f.model) { return; }
@@ -1492,9 +1623,9 @@ function resolvePlayerCollisions(colliders) {
             const n = tmpCollide.multiplyScalar(1 / dist);
             const penetration = minDist - dist;
             
-            // For large creatures (whales), push player MUCH harder - make them solid walls
-            const isLargeCreature = (f.radius || 1.5) >= 15;
-            const pushMultiplier = isLargeCreature ? 2.5 : 1.0; // Increased from 2.0
+            // For large creatures (whales), push player much harder - make them solid walls
+            const isLargeCreature = (f.radius || 1.5) >= LARGE_CREATURE_COLLISION_THRESHOLD;
+            const pushMultiplier = isLargeCreature ? LARGE_CREATURE_PUSH_MULTIPLIER : DEFAULT_PUSH_MULTIPLIER;
             
             fish.position.addScaledVector(n, penetration * pushMultiplier);
 
@@ -1504,7 +1635,7 @@ function resolvePlayerCollisions(colliders) {
                 const vn = fishVelocity.dot(n);
                 if (vn < 0) {
                     // For large creatures, completely STOP and bounce back
-                    const stopScale = isLargeCreature ? 4.0 : 1.5; // Increased from 3.5/1.2
+                    const stopScale = isLargeCreature ? LARGE_CREATURE_STOP_SCALE : DEFAULT_STOP_SCALE;
                     fishVelocity.addScaledVector(n, -vn * stopScale);
                 }
             }
@@ -1582,62 +1713,9 @@ function resolvePlayerSceneCollisions() {
     });
 }
 
-async function loadFishPlayerWithPhysics() {
-    return new Promise((resolve) => {
-        const fishModel = PLAYER_FISH_MODELS[currentFishModelIndex];
-        loader.load(
-            fishModel.url,
-            (gltf) => {
-                fish = gltf.scene;
-                fish.position.set(0, 5, 0);
-                fish.scale.setScalar(fishModel.scale);
-                fish.traverse((obj) => {
-                    if (obj.isMesh) {
-                        obj.castShadow = true;
-                        obj.receiveShadow = true;
-                    }
-                });
-                scene.add(fish);
-                fish.rotation.y = Math.PI + fishModel.rotationOffsetY;
-                if (fishModel.rotationOffsetX !== 0) {
-                    fish.rotation.x = fishModel.rotationOffsetX;
-                }
-                if (fishModel.rotationOffsetZ !== 0) {
-                    fish.rotation.z = fishModel.rotationOffsetZ;
-                }
-                controls.target.copy(fish.position);
-                followOffset.copy(INITIAL_CAMERA_OFFSET);
-                camera.position.copy(fish.position).add(followOffset);
-                controls.update();
-
-                if (gltf.animations && gltf.animations.length > 0) {
-                    mixer = new THREE.AnimationMixer(fish);
-                    gltf.animations.forEach((clip) => mixer.clipAction(clip).play());
-                }
-                
-                // Add physics to player fish
-                if (isRapierLoaded()) {
-                    createFishPhysics({ model: fish, position: fish.position }, PLAYER_RADIUS, 1.5);
-                }
-                
-                controlledFish = fish;
-                
-                if (hudFishModelLabel) {
-                    hudFishModelLabel.textContent = fishModel.name;
-                }
-                
-                resolve(fish);
-            },
-            undefined,
-            (error) => {
-                console.error('Failed to load fish model', error);
-                resolve(null);
-            },
-        );
-    });
-}
-
-// Small schooling fish that move in tight groups
+/**
+ * Spawn small schooling fish groups with emissive accents.
+ */
 function loadSchoolFish() {
     const worldBounds = {
         min: -PLANE_SIZE / 2,
@@ -1722,6 +1800,9 @@ function loadSchoolFish() {
     });
 }
 
+/**
+ * Initialize looping underwater ambience audio with user-gesture fallback.
+ */
 function initAudio() {
     try {
         const ambienceUrl = new URL('./assets/sounds/Underwater Ambient.mp3', import.meta.url).href;
@@ -1768,6 +1849,9 @@ function initAudio() {
     }
 }
 
+/**
+ * Initialize physics, scene content, player fish, audio, and start the render loop.
+ */
 async function initScene() {
     const savedFishIndex = parseInt(localStorage.getItem('selectedFishIndex') || '0', 10);
     if (savedFishIndex >= 0 && savedFishIndex < PLAYER_FISH_MODELS.length) {
@@ -1812,6 +1896,10 @@ async function initScene() {
 
 const cycleStart = performance.now();
 
+/**
+ * Advance the day/night cycle, updating lighting, fog, water, and HUD.
+ * @param {number} elapsedMs - Elapsed milliseconds since start.
+ */
 function updateDayNight(elapsedMs) {
     const t = ((elapsedMs % cycleDurationMs) / cycleDurationMs + 0.25) % 1; // offset start toward daytime
     const theta = t * Math.PI * 2;
@@ -1855,15 +1943,18 @@ function updateDayNight(elapsedMs) {
     renderer.setClearColor(underwaterColor);
     
     if (water) {
-        const sunDir = new THREE.Vector3();
-        sunDir.copy(sun.position).normalize();
-        water.material.uniforms['sunDirection'].value.copy(sunDir);
+        tmpSunDir.copy(sun.position).normalize();
+        water.material.uniforms['sunDirection'].value.copy(tmpSunDir);
         
         const waterColor = nightWaterColor.clone().lerp(dayWaterColor, Math.max(0.2, daylight));
         water.material.uniforms['waterColor'].value.set(waterColor);
     }
 }
 
+/**
+ * Update motion and camera follow for the currently controlled fish (AI instance).
+ * @param {number} delta - Seconds since last frame.
+ */
 function updateControlledFish(delta) {
     if (!controlledFish) return;
     
@@ -1873,14 +1964,8 @@ function updateControlledFish(delta) {
     }
     
     if (controlledFish.model && controlledFish.isControlled) {
-        const startPos = controlledFish.model.position.clone();
+        tmpStartPos.copy(controlledFish.model.position);
 
-        const tmpForward = new THREE.Vector3();
-        const tmpRight = new THREE.Vector3();
-        const upVector = new THREE.Vector3(0, 1, 0);
-        const tmpHeading = new THREE.Vector3();
-        const accel = new THREE.Vector3();
-        
         accel.set(0, 0, 0);
         camera.getWorldDirection(tmpForward);
         tmpForward.y = 0;
@@ -1940,18 +2025,22 @@ function updateControlledFish(delta) {
             controlledFish.rigidBody.setNextKinematicRotation(rotation);
         }
 
-        const displacement = new THREE.Vector3().subVectors(controlledFish.model.position, startPos);
+        tmpDisplacement.subVectors(controlledFish.model.position, tmpStartPos);
         
-        camera.position.add(displacement);
+        camera.position.add(tmpDisplacement);
         
         controls.target.copy(controlledFish.model.position);
     }
 }
 
+/**
+ * Update the main player fish movement, collisions, and camera follow.
+ * @param {number} delta - Seconds since last frame.
+ */
 function updateFish(delta) {
     if (!fish) return;
 
-    const startPos = fish.position.clone();
+    tmpStartPos.copy(fish.position);
 
     if (controlledFish === fish) {
         accel.set(0, 0, 0);
@@ -2018,17 +2107,25 @@ function updateFish(delta) {
         }
     }
 
-    const displacement = new THREE.Vector3().subVectors(fish.position, startPos);
+    tmpDisplacement.subVectors(fish.position, tmpStartPos);
     
-    camera.position.add(displacement);
+    camera.position.add(tmpDisplacement);
     
     controls.target.copy(fish.position);
 }
 
+/**
+ * Return to the menu by reloading the page.
+ */
 function returnToMenu() {
     window.location.reload();
 }
 
+/**
+ * Keyboard input handler for movement, control switching, and menu.
+ * @param {KeyboardEvent} event
+ * @param {boolean} isDown
+ */
 function handleKey(event, isDown) {
     if (isDown && event.code === 'Tab') {
         event.preventDefault();
@@ -2058,6 +2155,9 @@ function handleKey(event, isDown) {
 window.addEventListener('keydown', (e) => handleKey(e, true));
 window.addEventListener('keyup', (e) => handleKey(e, false));
 
+/**
+ * Main render/update loop: physics, AI, player, postprocessing.
+ */
 function animate() {
     requestAnimationFrame(animate);
 
@@ -2162,6 +2262,9 @@ function animate() {
     }
 }
 
+/**
+ * Keep camera and renderer sizes in sync with the window.
+ */
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();

@@ -1,3 +1,8 @@
+/*
+    Sand Generation Module is responsible for generating procedural terrain data
+    using the diamond-square algorithm, and providing utility functions to
+    extract edge data for seamless terrain stitching.
+*/
 export function generateTerrain(
     detail, roughness = 1,
     {top = null, bottom = null, left = null, right = null} = {},

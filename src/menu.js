@@ -1,3 +1,9 @@
+/*
+    Menu Module is responsible for creating and managing the main menu
+    interface, including fish model selection with 3D previews, and
+    handling transitions to the main game scene.
+*/
+
 import './menu.css';
 import { initMenuBackground } from './menu-background.js';
 import * as THREE from 'three';
@@ -10,7 +16,6 @@ import discusFishUrl from './assets/discus_fish.glb';
 import stylizedFishUrl from './assets/stylized_fish.glb';
 
 let gameLoaded = false;
-let gameModule = null;
 let backgroundScene = null;
 
 const TURTLE_URL = './assets/turtle.glb';
@@ -95,6 +100,9 @@ let previewAnimationId = null;
 const previewLoader = new GLTFLoader();
 previewLoader.register((parser) => new KHRMaterialsPBRSpecularGlossiness(parser));
 
+/**
+ * Set up a small Three.js scene for fish preview in the menu.
+ */
 function initPreview(canvasContainer) {
     previewScene = new THREE.Scene();
     previewScene.background = null;
@@ -126,6 +134,9 @@ function initPreview(canvasContainer) {
     
     previewClock = new THREE.Clock();
     
+    /**
+     * Animate the preview scene.
+     * */
     function animatePreview() {
         previewAnimationId = requestAnimationFrame(animatePreview);
         
@@ -145,6 +156,9 @@ function initPreview(canvasContainer) {
     animatePreview();
 }
 
+/**
+ * Load and display a preview fish model by index.
+ */
 function loadPreviewModel(index) {
     const fishModel = FISH_MODELS[index];
     
@@ -219,6 +233,9 @@ function loadPreviewModel(index) {
     );
 }
 
+/**
+ * Build the main menu DOM, hook up events, and initialize preview.
+ */
 function createMenu() {
     const menuContainer = document.createElement('div');
     menuContainer.id = 'menu-container';
@@ -300,6 +317,9 @@ function createMenu() {
         localStorage.setItem('selectedFishIndex', selectedFishIndex.toString());
     });
     
+    /**
+     * Update the fish name and load the corresponding preview model.
+     */
     function updateFishDisplay(index) {
         const fishModel = FISH_MODELS[index];
         document.getElementById('fish-name').textContent = fishModel.name;
@@ -315,6 +335,9 @@ function createMenu() {
     });
 }
 
+/**
+ * Fade out menu, dispose preview, and lazy-load the game module.
+ */
 async function startGame() {
     if (gameLoaded) return;
     
@@ -375,6 +398,9 @@ async function startGame() {
     }
 }
 
+/**
+ * Exit the game or navigate back; shows a thank-you fallback when blocked.
+ */
 function quitGame() {
     if (confirm('Are you sure you want to quit?')) {
         window.close();
@@ -391,4 +417,3 @@ if (document.readyState === 'loading') {
 } else {
     createMenu();
 }
-
