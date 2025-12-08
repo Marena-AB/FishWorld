@@ -156,9 +156,23 @@ body {
     min-width: 150px;
 }
 
-.fish-emoji {
-    font-size: 2.5rem;
-    line-height: 1;
+.fish-preview-canvas {
+    width: 200px;
+    height: 200px;
+    border-radius: 12px;
+    background: rgba(10, 25, 56, 0.6);
+    border: 2px solid rgba(140, 200, 216, 0.3);
+    box-shadow: 
+        0 4px 15px rgba(0, 0, 0, 0.3),
+        inset 0 0 20px rgba(26, 95, 122, 0.2);
+    transition: all 0.3s ease;
+}
+
+.fish-preview-canvas:hover {
+    border-color: rgba(140, 200, 216, 0.5);
+    box-shadow: 
+        0 6px 20px rgba(0, 0, 0, 0.4),
+        inset 0 0 25px rgba(26, 95, 122, 0.3);
 }
 
 .fish-name {
@@ -300,8 +314,9 @@ body {
         font-size: 1rem;
     }
     
-    .fish-emoji {
-        font-size: 2rem;
+    .fish-preview-canvas {
+        width: 150px;
+        height: 150px;
     }
     
     .fish-name {

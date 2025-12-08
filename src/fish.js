@@ -1,10 +1,13 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { KHRMaterialsPBRSpecularGlossiness } from './pbrSpecGlossExtension.js';
 
 export class Fish {
-    // Shared loader and GLTF cache so multiple fish reuse parsed scenes/animations
     static loader = new GLTFLoader();
+    static {
+        Fish.loader.register((parser) => new KHRMaterialsPBRSpecularGlossiness(parser));
+    }
     static gltfCache = new Map();
 
     static loadModel(modelPath, modelFile) {

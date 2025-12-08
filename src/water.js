@@ -8,6 +8,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { generateTerrain } from './sand-generation.js';
 import { Fish } from './fish.js';
 import { initPhysics, getPhysicsWorld, isRapierLoaded, createTerrainCollider, createSceneColliders, createFishPhysics, updatePhysics, syncPhysicsToThreeJS, getPhysicsObjects } from './physics.js';
+import { KHRMaterialsPBRSpecularGlossiness } from './pbrSpecGlossExtension.js';
 
 // Import fish models (webpack will bundle these)
 import alienFishUrl from './assets/alien_fish_animated.glb';
@@ -72,6 +73,7 @@ document.body.appendChild(renderer.domElement);
 
 const clock = new THREE.Clock();
 const loader = new GLTFLoader();
+loader.register((parser) => new KHRMaterialsPBRSpecularGlossiness(parser));
 let fish;
 let mixer;
 let guppyFish = [];
@@ -138,14 +140,13 @@ function getSpawnPosition(worldBounds, minSpacing, existingPositions, yRange) {
 
 // Asset URLs (must stay static for bundlers)
 const SEAWEED_URL = new URL('./assets/sea_weed.glb', import.meta.url).href;
-const TURTLE_URL = new URL('./assets/model_46a_-_subadult_green_sea_turtle.glb', import.meta.url).href;
+const TURTLE_URL = new URL('./assets/turtle.glb', import.meta.url).href;
 const WHALE_URL = new URL('./assets/blue_whale.glb', import.meta.url).href;
 const ORCA_URL = new URL('./assets/female_orca.glb', import.meta.url).href;
 const SPERM_WHALE_URL = new URL('./assets/sperm_whale.glb', import.meta.url).href;
 const STYLIZED_FISH_URL = new URL('./assets/stylized_fish.glb', import.meta.url).href;
 const DISCUS_FISH_URL = new URL('./assets/discus_fish.glb', import.meta.url).href;
 const ALIEN_FISH_URL = new URL('./assets/alien_fish_animated.glb', import.meta.url).href;
-// These GLTFs reference external .bin/textures; load from the copied assets folder to keep paths intact
 const KOI_FISH_URL = 'assets/fish_models/koi_fish/scene.gltf';
 const TUNA_FISH_URL = 'assets/fish_models/tuna_fish/scene.gltf';
 const SCHOOL_FISH_URL = 'assets/fish_models/school_of_fish/scene.gltf';
@@ -172,7 +173,7 @@ const PLAYER_FISH_MODELS = [
     { 
         name: 'Discus Fish', 
         url: discusFishUrl, 
-        scale: 100.95, 
+        scale: 10.95, 
         rotationOffsetY: Math.PI / 2,
         rotationOffsetX: 0,
         rotationOffsetZ: 0
@@ -212,8 +213,8 @@ const PLAYER_FISH_MODELS = [
     { 
         name: 'Sea Turtle', 
         url: TURTLE_URL, 
-        scale: 10.5, 
-        rotationOffsetY: 0,
+        scale: 20.5, 
+        rotationOffsetY: Math.PI,
         rotationOffsetX: 0,
         rotationOffsetZ: 0
     }
@@ -395,7 +396,16 @@ function addSceneModel(options) {
                         obj.castShadow = true;
                         obj.receiveShadow = true;
                         if (obj.material) {
-                            obj.material = obj.material.clone();
+                            const clonedMaterial = obj.material.clone();
+                            if (obj.material.map) clonedMaterial.map = obj.material.map;
+                            if (obj.material.normalMap) clonedMaterial.normalMap = obj.material.normalMap;
+                            if (obj.material.roughnessMap) clonedMaterial.roughnessMap = obj.material.roughnessMap;
+                            if (obj.material.metalnessMap) clonedMaterial.metalnessMap = obj.material.metalnessMap;
+                            if (obj.material.aoMap) clonedMaterial.aoMap = obj.material.aoMap;
+                            if (obj.material.emissiveMap) clonedMaterial.emissiveMap = obj.material.emissiveMap;
+                            if (obj.material.alphaMap) clonedMaterial.alphaMap = obj.material.alphaMap;
+                            clonedMaterial.needsUpdate = true;
+                            obj.material = clonedMaterial;
                         }
                     }
                 });
@@ -462,11 +472,10 @@ function addAmbientModels() {
         wanderSpeed: 2.0
     });
 
-    // Discus fish school
     addSceneModel({
         href: DISCUS_FISH_URL,
-        scale: 101.0,  // Reduced to better match player size
-        count: 6,  // Reduced from 14
+        scale: 10.0,  
+        count: 6,
         area: 0.4,
         minY: 9,
         maxY: 18,
@@ -474,11 +483,10 @@ function addAmbientModels() {
         wanderSpeed: 1.8
     });
 
-    // Alien fish with animations for night vibe
     addSceneModel({
         href: ALIEN_FISH_URL,
-        scale: 0.2,  // Increased from 0.065 (3x bigger)
-        count: 4,  // Reduced from 8
+        scale: 0.2,
+        count: 4,
         area: 0.35,
         minY: 11,
         maxY: 18,
