@@ -1341,7 +1341,7 @@ function loadLargeCreatures() {
         waterSurfaceY: WATER_SURFACE_Y,
         physicsWorld: getPhysicsWorld(),
         canJump: false,  // CHANGED: Whales shouldn't jump, prevents getting stuck
-        radius: 6,  // REDUCED back to 6 - large radius was causing too many collisions
+        radius: 30,  // MASSIVE radius - increased from 25
         materialModifier: (mat) => {
             mat.roughness = 0.6;
             mat.metalness = 0.1;
@@ -1370,7 +1370,7 @@ function loadLargeCreatures() {
         waterSurfaceY: WATER_SURFACE_Y,
         physicsWorld: getPhysicsWorld(),
         canJump: false,  // CHANGED: Orcas shouldn't jump in this implementation, prevents getting stuck
-        radius: 5,  // REDUCED back to 5 - large radius was causing too many collisions
+        radius: 22,  // Large radius - increased from 18
         materialModifier: (mat) => {
             mat.roughness = 0.5;
             mat.metalness = 0.15;
@@ -1399,7 +1399,7 @@ function loadLargeCreatures() {
         waterSurfaceY: WATER_SURFACE_Y,
         physicsWorld: getPhysicsWorld(),
         canJump: false,  // CHANGED: Sperm whales shouldn't jump, prevents getting stuck
-        radius: 5,  // REDUCED back to 5 - large radius was causing too many collisions
+        radius: 26,  // Large radius - increased from 22
         materialModifier: (mat) => {
             mat.roughness = 0.7;
             mat.metalness = 0.05;
@@ -1428,14 +1428,12 @@ function gatherFishColliders() {
 function resolveAICollisions(colliders) {
     for (let i = 0; i < colliders.length; i++) {
         const a = colliders[i];
-        // Skip whales in collision resolution - they're too big and get stuck
-        if (a.scale >= 1.4) { continue; }
+        if (!a.model) { continue; }
         const posA = a.model.position;
         const radiusA = a.radius || 1.5;
         for (let j = i + 1; j < colliders.length; j++) {
             const b = colliders[j];
-            // Skip whales in collision resolution
-            if (b.scale >= 1.4) { continue; }
+            if (!b.model) { continue; }
             const posB = b.model.position;
             const radiusB = b.radius || 1.5;
             tmpCollide.subVectors(posA, posB);
@@ -1445,31 +1443,73 @@ function resolveAICollisions(colliders) {
             const dist = Math.sqrt(distSq);
             const n = tmpCollide.multiplyScalar(1 / dist);
             const penetration = minDist - dist;
-            const push = penetration * 0.5;
-            posA.addScaledVector(n, push);
-            posB.addScaledVector(n, -push);
+            
+            // Push both creatures apart equally
+            // For large creatures, push MORE not less to prevent overlap
+            const isLargeA = radiusA >= 15;
+            const isLargeB = radiusB >= 15;
+            
+            // If both are large (whale vs whale), push strongly
+            // If one is large and one small, push the small one more
+            let pushA = penetration * 0.5;
+            let pushB = penetration * 0.5;
+            
+            if (isLargeA && isLargeB) {
+                // Both large - push both equally and strongly
+                pushA = penetration * 0.6;
+                pushB = penetration * 0.6;
+            } else if (isLargeA && !isLargeB) {
+                // A is large, B is small - push small one more
+                pushA = penetration * 0.2;
+                pushB = penetration * 0.8;
+            } else if (!isLargeA && isLargeB) {
+                // B is large, A is small - push small one more
+                pushA = penetration * 0.8;
+                pushB = penetration * 0.2;
+            }
+            
+            posA.addScaledVector(n, pushA);
+            posB.addScaledVector(n, -pushB);
         }
     }
 }
 
 function resolvePlayerCollisions(colliders) {
     if (!fish) { return; }
-    colliders.forEach((f) => {
-        const otherPos = f.model.position;
-        tmpCollide.subVectors(fish.position, otherPos);
-        const minDist = PLAYER_RADIUS + (f.radius || 1.5);
-        const distSq = tmpCollide.lengthSq();
-        if (distSq === 0 || distSq >= minDist * minDist) { return; }
-        const dist = Math.sqrt(distSq);
-        const n = tmpCollide.multiplyScalar(1 / dist);
-        const penetration = minDist - dist;
-        fish.position.addScaledVector(n, penetration);
+    
+    // Run collision resolution multiple times to ensure complete separation
+    // This prevents any penetration even at high speeds
+    const iterations = 3;
+    for (let iter = 0; iter < iterations; iter++) {
+        colliders.forEach((f) => {
+            if (!f.model) { return; }
+            const otherPos = f.model.position;
+            tmpCollide.subVectors(fish.position, otherPos);
+            const minDist = PLAYER_RADIUS + (f.radius || 1.5);
+            const distSq = tmpCollide.lengthSq();
+            if (distSq === 0 || distSq >= minDist * minDist) { return; }
+            const dist = Math.sqrt(distSq);
+            const n = tmpCollide.multiplyScalar(1 / dist);
+            const penetration = minDist - dist;
+            
+            // For large creatures (whales), push player MUCH harder - make them solid walls
+            const isLargeCreature = (f.radius || 1.5) >= 15;
+            const pushMultiplier = isLargeCreature ? 2.5 : 1.0; // Increased from 2.0
+            
+            fish.position.addScaledVector(n, penetration * pushMultiplier);
 
-        const vn = fishVelocity.dot(n);
-        if (vn < 0) {
-            fishVelocity.addScaledVector(n, -vn); // remove into-other component to slide
-        }
-    });
+            // Stop velocity going into the creature - make it feel like hitting a wall
+            // Only do this on the first iteration to avoid over-correcting velocity
+            if (iter === 0) {
+                const vn = fishVelocity.dot(n);
+                if (vn < 0) {
+                    // For large creatures, completely STOP and bounce back
+                    const stopScale = isLargeCreature ? 4.0 : 1.5; // Increased from 3.5/1.2
+                    fishVelocity.addScaledVector(n, -vn * stopScale);
+                }
+            }
+        });
+    }
 }
 
 function resolvePlayerSceneCollisions() {
@@ -2093,6 +2133,9 @@ function animate() {
     if (largeFish.length > 0) {
         largeFish.forEach((lf) => lf.update(delta));
     }
+
+    // Resolve collisions between AI fish (whales vs whales, whales vs small fish, etc.)
+    resolveAICollisions(gatherFishColliders());
 
     // Sync physics to Three.js (for kinematic objects)
     syncPhysicsToThreeJS();
