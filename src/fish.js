@@ -63,6 +63,7 @@ export class Fish {
         this.maxTravelTime = options.maxTravelTime || 15.0;
         this.minTravelTime = options.minTravelTime || 8.0;
         this.canMove = options.canMove !== undefined ? options.canMove : true;
+        this.minTargetDistance = options.minTargetDistance || 0;
         this.worldBounds = options.worldBounds || {
             min: -400,
             max: 400,
@@ -179,7 +180,17 @@ export class Fish {
         const randomZ = minZ + Math.random() * (maxZ - minZ);
         const randomY = minY + Math.random() * (maxY - minY);
         
-        this.targetPosition.set(randomX, randomY, randomZ);
+        const currentPos = this.model ? this.model.position : this.position;
+        const minDistSq = this.minTargetDistance * this.minTargetDistance;
+        let attempts = 0;
+        do {
+            this.targetPosition.set(
+                minX + Math.random() * (maxX - minX),
+                minY + Math.random() * (maxY - minY),
+                minZ + Math.random() * (maxZ - minZ)
+            );
+            attempts++;
+        } while (this.minTargetDistance > 0 && attempts < 8 && this.targetPosition.distanceToSquared(currentPos) < minDistSq);
         
         this.timeSinceTargetChange = 0;
         this.currentTargetTime = this.minTravelTime + Math.random() * (this.maxTravelTime - this.minTravelTime);

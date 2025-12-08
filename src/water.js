@@ -153,6 +153,7 @@ const TUNA_FISH_URL = 'assets/fish_models/tuna_fish/scene.gltf';
 const SCHOOL_FISH_URL = 'assets/fish_models/school_of_fish/scene.gltf';
 const STAR_FISH_URL = 'assets/fish_models/star_fish/scene.gltf';
 const ANIMATED_FISH_URL = 'assets/fish_models/fish_animated/scene.gltf';
+const CORAL_URL = new URL('./assets/coral_v2.0.glb', import.meta.url).href;
 
 const PLAYER_FISH_MODELS = [
     { 
@@ -459,6 +460,17 @@ function addAmbientModels() {
         minY: 5,
         maxY: 12,
         yOffset: -0.5
+    });
+
+    // Coral heads on the seafloor for more structure
+    addSceneModel({
+        href: CORAL_URL,
+        scale: 9.0,
+        count: 24,
+        area: 0.95,
+        minY: 5,
+        maxY: 16,
+        yOffset: 0.3
     });
 
     // Stylized mid-water fish
@@ -1179,11 +1191,12 @@ function loadLargeCreatures() {
             30 + Math.random() * 10,  // INCREASED from 25 - spawn higher to avoid terrain
             (Math.random() - 0.5) * PLANE_SIZE * 0.4
         ),
-        moveSpeed: 10.0,
+        moveSpeed: 16.0,
         rotationSpeed: 1.2,
-        changeTargetDistance: 40,
-        maxTravelTime: 20.0,
-        minTravelTime: 10.0,
+        changeTargetDistance: 30,
+        maxTravelTime: 24.0,
+        minTravelTime: 12.0,
+        minTargetDistance: 140,
         worldBounds: worldBounds,
         waterSurfaceY: WATER_SURFACE_Y,
         physicsWorld: getPhysicsWorld(),
@@ -1207,11 +1220,12 @@ function loadLargeCreatures() {
             25 + Math.random() * 10,  // INCREASED from 20 - spawn higher to avoid terrain
             (Math.random() - 0.5) * PLANE_SIZE * 0.5
         ),
-        moveSpeed: 12.0,
-        rotationSpeed: 1.6,
-        changeTargetDistance: 40,
-        maxTravelTime: 18.0,
-        minTravelTime: 9.0,
+        moveSpeed: 18.0,
+        rotationSpeed: 1.8,
+        changeTargetDistance: 26,
+        maxTravelTime: 20.0,
+        minTravelTime: 10.0,
+        minTargetDistance: 130,
         worldBounds: worldBounds,
         waterSurfaceY: WATER_SURFACE_Y,
         physicsWorld: getPhysicsWorld(),
@@ -1235,11 +1249,12 @@ function loadLargeCreatures() {
             22 + Math.random() * 10,  // INCREASED from 18 - spawn higher to avoid terrain
             (Math.random() - 0.5) * PLANE_SIZE * 0.6
         ),
-        moveSpeed: 3.5,
-        rotationSpeed: 1.2,
-        changeTargetDistance: 25,
-        maxTravelTime: 25.0,
-        minTravelTime: 15.0,
+        moveSpeed: 10.0,
+        rotationSpeed: 1.25,
+        changeTargetDistance: 28,
+        maxTravelTime: 22.0,
+        minTravelTime: 12.0,
+        minTargetDistance: 120,
         worldBounds: worldBounds,
         waterSurfaceY: WATER_SURFACE_Y,
         physicsWorld: getPhysicsWorld(),
